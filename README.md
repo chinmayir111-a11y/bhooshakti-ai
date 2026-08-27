@@ -38,42 +38,133 @@ on synthetic data would misrepresent real-world skill.
 
 ---
 
-## Run it
+## Running it
 
-Everything runs locally. Nothing is deployed.
+Pick **one** of the two paths below. Docker works identically on Windows, macOS and
+Linux and needs nothing else installed. The native path is faster and is what the
+prototype was developed on.
 
-### Containers
+### Path A — Docker (any OS, nothing else to install)
+
+Requires [Docker Desktop](https://docs.docker.com/get-started/get-docker/).
 
 ```bash
+git clone https://github.com/chinmayir111-a11y/bhooshakti.git
+cd bhooshakti
 cp .env.example .env
-docker compose up --build
-docker compose exec api python scripts/seed.py --reset   # fetches real weather
-docker compose exec api python scripts/train.py
+
+docker compose up --build                                # starts db, mqtt, api, web
+docker compose exec api python scripts/seed.py --reset   # loads data + real weather
+docker compose exec api python scripts/train.py          # trains the model
 ```
 
-The seed pulls ~23,000 hourly weather rows from Open-Meteo (one batched request per
-endpoint for all 25 zones) and caches them. **After that the system needs no network** —
-see *Working offline* below.
+On Windows use PowerShell and `copy .env.example .env` instead of `cp`.
 
-### Native (macOS / Homebrew) — what this prototype was built and demoed on
+> **Note:** the container path is written and reviewed but has **not been executed** —
+> Docker was not installed on the development machine. If you hit a problem here, the
+> native path below is the one that is proven.
+
+### Path B — Native
+
+**Check what you have first.** This tells you exactly what is missing:
 
 ```bash
-brew install postgresql@18 postgis mosquitto python@3.12
-cp infra/mosquitto/mosquitto.conf /usr/local/etc/mosquitto/mosquitto.conf
-make setup          # venv, database, PostGIS, seed, train, npm installs
-make api            # terminal 1 — http://localhost:8000/docs
-make web            # terminal 2 — http://localhost:5173
-make mobile         # terminal 3 — Expo field app (optional)
+make doctor
 ```
 
-From a clean clone, `make setup` completes in **under 5 minutes**.
+<details open>
+<summary><strong>macOS</strong> (Intel and Apple Silicon)</summary>
+
+```bash
+brew install postgresql@18 postgis mosquitto python@3.12 node
+cp infra/mosquitto/mosquitto.conf "$(brew --prefix)/etc/mosquitto/mosquitto.conf"
+make setup
+```
+</details>
+
+<details>
+<summary><strong>Linux</strong> (Debian / Ubuntu)</summary>
+
+```bash
+sudo apt update
+sudo apt install -y postgresql postgresql-16-postgis-3 mosquitto \
+                    python3.12 python3.12-venv nodejs npm
+sudo cp infra/mosquitto/mosquitto.conf /etc/mosquitto/conf.d/bhooshakti.conf
+sudo systemctl restart mosquitto
+make setup
+```
+
+Adjust the PostGIS package to match your PostgreSQL version
+(`postgresql-15-postgis-3`, etc.).
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+`make` is not standard on Windows. Two options:
+
+**Easiest — use Docker (Path A above).**
+
+**Or use WSL2**, which gives you a real Linux environment:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Then open Ubuntu and follow the Linux instructions exactly.
+
+**Or run the steps by hand in PowerShell**, if you would rather not use either.
+Install [PostgreSQL + PostGIS](https://www.postgresql.org/download/windows/) (tick
+PostGIS in Stack Builder), [Python 3.12](https://www.python.org/downloads/) and
+[Node.js](https://nodejs.org/), then:
+
+```powershell
+copy .env.example .env
+python -m venv backend\.venv
+backend\.venv\Scripts\pip install -r backend\requirements.txt
+
+psql -U postgres -c "CREATE ROLE bhooshakti WITH LOGIN PASSWORD 'bhooshakti' SUPERUSER"
+psql -U postgres -c "CREATE DATABASE bhooshakti OWNER bhooshakti"
+psql -U postgres -d bhooshakti -c "CREATE EXTENSION IF NOT EXISTS postgis"
+
+cd backend
+.venv\Scripts\python scripts\seed.py --reset
+.venv\Scripts\python scripts\train.py
+cd ..
+cd web && npm install && cd ..
+```
+</details>
+
+### Start it
+
+Two terminals (three if you want the phone app):
+
+| Terminal | macOS / Linux | Windows (PowerShell) |
+|---|---|---|
+| 1 | `make api` | `backend\.venv\Scripts\python -m uvicorn app.main:app --port 8000` *(from `backend\`)* |
+| 2 | `make web` | `npm run dev` *(from `web\`)* |
+| 3 | `make mobile` | `npx expo start --web --port 8081` *(from `mobile\`)* |
+
+From a clean clone, setup completes in **under 5 minutes** (about 25 seconds of that is
+seed + train; the rest is downloading dependencies).
 
 | Surface | URL |
 |---|---|
 | Authority dashboard | http://localhost:5173 |
 | Citizen reporting (no login) | http://localhost:5173/report |
+| Field officer app | http://localhost:8081 |
 | API docs (OpenAPI) | http://localhost:8000/docs |
 | Live WebSocket channel | ws://localhost:8000/ws/live |
+
+### Everyday commands
+
+```bash
+make doctor    # what is installed, what is missing, what still needs doing
+make test      # all 74 tests
+make weather   # refresh the cached Open-Meteo data
+make reset     # rebuild data and retrain from scratch
+make help      # every available command
+```
 
 ### Demo logins
 
