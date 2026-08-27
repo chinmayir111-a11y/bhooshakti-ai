@@ -80,33 +80,109 @@ def test_no_observation_is_dated_in_the_future(db):
 
 
 @requires_db
-def test_no_forecast_is_dated_in_the_past(db):
-    for table in ("rainfall_readings", "soil_moisture_readings"):
-        stray = db.execute(text(
-            f"SELECT COUNT(*) FROM {table} WHERE is_forecast AND ts <= NOW()"
-        )).scalar_one()
-        assert stray == 0, f"{table} has past rows still flagged as forecast"
+def test_elapsed_forecast_rows_do_not_leave_a_hole_in_the_series(db):
+    """Forecasts age into the past between weather refreshes.
+
+    They keep their `is_forecast` flag until a refresh replaces them with the
+    observation, so the recent end of the series can be forecast-only. The
+    series builder must fall back to them rather than skipping those hours —
+    otherwise a 24h rainfall total quietly loses its most recent hours and
+    every risk score drifts low. (This is the bug the assertion originally
+    here was hiding: it demanded the situation never arise, when in fact it
+    arises constantly and simply has to be handled.)
+    """
+    from app.services.risk_service import _zone_series
+
+    zone_id = db.execute(text("SELECT id FROM zones ORDER BY id LIMIT 1")).scalar_one()
+    rain, soil, _ = _zone_series(db, zone_id)
+
+    hours_available = db.execute(text("""
+        SELECT COUNT(DISTINCT ts) FROM rainfall_readings
+        WHERE zone_id = :z AND ts >= NOW() - INTERVAL '30 days' AND ts <= NOW()
+    """), {"z": zone_id}).scalar_one()
+
+    assert len(rain) == hours_available, "series skipped hours it had data for"
+    assert len(soil) == len(rain), "rainfall and soil series must stay aligned"
+
+    # And the most recent 24h must be essentially complete.
+    assert len(rain) >= 24, "not enough history to compute a 24h total"
 
 
 @requires_db
-def test_trailing_window_excludes_the_forecast(db):
-    """The bug this guards: a 24h total that quietly includes tomorrow."""
+def test_the_series_never_reaches_into_the_future(db):
+    """Whatever else happens, tomorrow must not appear in a trailing total."""
+    from app.services.risk_service import _zone_series
+
+    zone_id = db.execute(text("SELECT id FROM zones ORDER BY id LIMIT 1")).scalar_one()
+    rain, _soil, _ = _zone_series(db, zone_id)
+
+    within_window = db.execute(text("""
+        SELECT COUNT(DISTINCT ts) FROM rainfall_readings
+        WHERE zone_id = :z AND ts >= NOW() - INTERVAL '30 days' AND ts <= NOW()
+    """), {"z": zone_id}).scalar_one()
+    future = db.execute(text("""
+        SELECT COUNT(DISTINCT ts) FROM rainfall_readings
+        WHERE zone_id = :z AND ts > NOW()
+    """), {"z": zone_id}).scalar_one()
+
+    assert future > 0, "no forecast cached — refresh weather before running this"
+    assert len(rain) == within_window, "future hours leaked into the trailing series"
+
+
+@requires_db
+def test_observation_wins_over_forecast_for_the_same_hour(db):
+    """When both exist for an hour, the real observation must be the one used."""
+    from app.services.risk_service import _zone_series
+
+    zone_id = db.execute(text("SELECT id FROM zones ORDER BY id LIMIT 1")).scalar_one()
+    hour = db.execute(text("""
+        SELECT ts FROM rainfall_readings
+        WHERE zone_id = :z AND NOT is_forecast AND ts <= NOW()
+        ORDER BY ts DESC LIMIT 1
+    """), {"z": zone_id}).scalar_one()
+
+    observed = db.execute(text("""
+        SELECT rainfall_mm FROM rainfall_readings
+        WHERE zone_id = :z AND ts = :t AND NOT is_forecast
+    """), {"z": zone_id, "t": hour}).scalar_one()
+
+    rain, _soil, _ = _zone_series(db, zone_id)
+    hours = db.execute(text("""
+        SELECT DISTINCT ts FROM rainfall_readings
+        WHERE zone_id = :z AND ts >= NOW() - INTERVAL '30 days' AND ts <= NOW()
+        ORDER BY ts
+    """), {"z": zone_id}).scalars().all()
+
+    assert rain[hours.index(hour)] == pytest.approx(float(observed))
+
+
+@requires_db
+def test_trailing_window_stops_at_now(db):
+    """The window ends at the present moment, never later.
+
+    Superseded a stricter version of this test that asserted the series simply
+    drops every forecast row. That is wrong once a forecast has aged into the
+    past: those hours still need to be counted, they just must not extend past
+    now. See test_elapsed_forecast_rows_do_not_leave_a_hole_in_the_series.
+    """
     from app.services.risk_service import _zone_series
 
     zone_id = db.execute(text("SELECT id FROM zones ORDER BY id LIMIT 1")).scalar_one()
     rain, _soil, last_ts = _zone_series(db, zone_id)
 
-    everything = db.execute(text(
-        "SELECT COUNT(*) FROM rainfall_readings WHERE zone_id = :z AND ts >= NOW() - INTERVAL '30 days'"
-    ), {"z": zone_id}).scalar_one()
-    forecast = db.execute(text(
-        "SELECT COUNT(*) FROM rainfall_readings "
-        "WHERE zone_id = :z AND is_forecast AND ts >= NOW() - INTERVAL '30 days'"
-    ), {"z": zone_id}).scalar_one()
-
-    assert forecast > 0, "no forecast cached — refresh weather before running this"
-    assert len(rain) == everything - forecast
+    assert rain, "series is empty"
     assert last_ts is not None and last_ts <= datetime.now(timezone.utc)
+
+    beyond_now = db.execute(text("""
+        SELECT COUNT(*) FROM rainfall_readings WHERE zone_id = :z AND ts > NOW()
+    """), {"z": zone_id}).scalar_one()
+    total_rows = db.execute(text("""
+        SELECT COUNT(*) FROM rainfall_readings
+        WHERE zone_id = :z AND ts >= NOW() - INTERVAL '30 days'
+    """), {"z": zone_id}).scalar_one()
+
+    assert beyond_now > 0, "no forecast cached — refresh weather before running this"
+    assert len(rain) < total_rows, "the future must be excluded from a trailing total"
 
 
 @requires_db

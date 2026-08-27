@@ -125,16 +125,33 @@ def _zone_series(db: Session, zone_id: int, days: int = 30) -> tuple[list[float]
     """
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=days)
+
+    # For each elapsed hour take the best estimate available: a real
+    # observation if we have one, otherwise the forecast that was issued for
+    # that hour. Forecasts age into the past between weather refreshes, and
+    # excluding them outright leaves a widening hole at the recent end of the
+    # series — precisely the hours that drive a 24h total — which makes every
+    # risk score drift low. Preferring observations keeps the ordering right;
+    # DISTINCT ON picks the first row per hour under that ordering.
     rain = [float(r[0]) for r in db.execute(text("""
-        SELECT rainfall_mm FROM rainfall_readings
-        WHERE zone_id = :z AND ts >= :since AND ts <= :now AND NOT is_forecast
-        ORDER BY ts
+        SELECT rainfall_mm FROM (
+            SELECT DISTINCT ON (ts) ts, rainfall_mm
+            FROM rainfall_readings
+            WHERE zone_id = :z AND ts >= :since AND ts <= :now
+            ORDER BY ts, is_forecast ASC
+        ) best ORDER BY ts
     """), {"z": zone_id, "since": since, "now": now})]
     soil = [float(r[0]) for r in db.execute(text("""
-        SELECT moisture_pct FROM soil_moisture_readings
-        WHERE zone_id = :z AND ts >= :since AND ts <= :now AND NOT is_forecast
-        ORDER BY ts
+        SELECT moisture_pct FROM (
+            SELECT DISTINCT ON (ts) ts, moisture_pct
+            FROM soil_moisture_readings
+            WHERE zone_id = :z AND ts >= :since AND ts <= :now
+            ORDER BY ts, is_forecast ASC
+        ) best ORDER BY ts
     """), {"z": zone_id, "since": since, "now": now})]
+    # Deliberately observations only: this feeds the staleness penalty on
+    # confidence, so it must measure how old the real data is, not how far
+    # the forecast reaches.
     last_ts = db.execute(text("""
         SELECT MAX(ts) FROM rainfall_readings
         WHERE zone_id = :z AND NOT is_forecast
