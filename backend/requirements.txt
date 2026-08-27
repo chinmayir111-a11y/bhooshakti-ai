@@ -1,0 +1,40 @@
+# --- API -------------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+email-validator==2.2.0
+
+# --- Auth ------------------------------------------------------------------
+pyjwt==2.10.1
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# --- Database / PostGIS ----------------------------------------------------
+SQLAlchemy==2.0.36
+GeoAlchemy2==0.16.0
+psycopg2-binary==2.9.10
+alembic==1.14.0
+shapely==2.0.6
+
+# --- MQTT ------------------------------------------------------------------
+paho-mqtt==2.1.0
+
+# --- ML --------------------------------------------------------------------
+numpy==2.0.2
+pandas==2.2.3
+scikit-learn==1.6.0
+# 3.x is required: xgboost 2.x predates scikit-learn 1.6's __sklearn_tags__
+# API and cannot be wrapped in a Pipeline or CalibratedClassifierCV under it.
+xgboost==3.4.1
+statsmodels==0.14.4
+joblib==1.4.2
+
+# --- Outbound adapters (Twilio / MSG91 / Expo push over plain REST,
+#     so no vendor SDK and no paid account is required to run the demo) -----
+httpx==0.28.1
+
+# --- Tests -----------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.0
