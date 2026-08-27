@@ -1,0 +1,87 @@
+# BHOOSHAKTI AI — full local stack.
+#
+#   docker compose up --build
+#   docker compose exec api python scripts/seed.py --reset
+#   docker compose exec api python scripts/train.py
+#
+# Then: dashboard http://localhost:5173 · API docs http://localhost:8000/docs
+#
+# ALL DATA IS SIMULATED. See README.md, "What is real vs simulated".
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: bhooshakti-db
+    environment:
+      POSTGRES_USER: bhooshakti
+      POSTGRES_PASSWORD: bhooshakti
+      POSTGRES_DB: bhooshakti
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhooshakti -d bhooshakti"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: bhooshakti-mqtt
+    ports:
+      - "1883:1883"   # MQTT
+      - "9001:9001"   # MQTT over WebSockets
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t healthcheck -E -W 2 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: bhooshakti-api
+    depends_on:
+      db: { condition: service_healthy }
+      mqtt: { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql+psycopg2://bhooshakti:bhooshakti@db:5432/bhooshakti
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
+      PUBLIC_DASHBOARD_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8081,http://localhost:19006
+    env_file:
+      - .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./backend/ml/artifacts:/app/ml/artifacts
+      - ./backend/uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # Simulated field sensors. Publishes to the broker; the API ingests.
+  # Off by default so the scripted demo controls the storm:
+  #   docker compose --profile sensors up -d simulator
+  simulator:
+    build: ./backend
+    container_name: bhooshakti-simulator
+    profiles: ["sensors"]
+    depends_on:
+      api: { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql+psycopg2://bhooshakti:bhooshakti@db:5432/bhooshakti
+      MQTT_HOST: mqtt
+    command: python scripts/sensor_simulator.py --interval 5
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE: http://localhost:8000
+        VITE_WS_URL: ws://localhost:8000/ws/live
+    container_name: bhooshakti-web
+    depends_on: [api]
+    ports: ["5173:80"]
+
+volumes:
+  pgdata:

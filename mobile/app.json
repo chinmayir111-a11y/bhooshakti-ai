@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "BHOOSHAKTI Field",
+    "slug": "bhooshakti-field",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#EDF1F6",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#1F3864"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.bhooshakti.field"
+    },
+    "android": {
+      "package": "ai.bhooshakti.field",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "BHOOSHAKTI Field geo-tags your slope verifications."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BHOOSHAKTI Field attaches slope photographs to your verification."
+        }
+      ],
+      "expo-asset"
+    ],
+    "extra": {
+      "apiBase": "http://localhost:8000"
+    }
+  }
+}
