@@ -503,3 +503,31 @@ Honest list, because a judge will ask.
 ---
 
 *Prototype built for SIH 2026 PS 26001. Not for operational use.*
+
+
+## Contributing
+
+Contributions are welcome. To keep development consistent across the backend,
+web dashboard, and mobile field app, use the workflow below.
+
+For a quick demonstration of the complete BHOOSHAKTI AI workflow:
+
+1. Start PostgreSQL/PostGIS and Mosquitto.
+2. Start the FastAPI backend on port `8000`.
+3. Start the Vite web application on port `5173`.
+4. Open `http://localhost:5173`.
+5. Sign in using the `authority` demo account.
+6. Select **Simulate Monsoon Event** to demonstrate the prediction, monitoring, verification, alert, and response workflow.
+
+### Demo Credentials
+
+All demo accounts use the password `demo1234`.
+
+| Username | Role | Access |
+|---|---|---|
+| `authority` | Authority | Full dashboard, alerts, moderation, audit and demo controls |
+| `field.officer` | Field Officer | Assigned zones and field verification |
+| `citizen` | Citizen | Citizen reporting functionality |
+
+> **Note:** BHOOSHAKTI AI clearly distinguishes real weather observations from simulated sensor telemetry, historical landslide events, terrain attributes, infrastructure data and the demonstration monsoon event. See **What is real vs simulated** for the complete data provenance.
+*Prototype built for SIH 2026 PS 26001. Not for operational use.*
