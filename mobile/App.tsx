@@ -187,8 +187,8 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (t: string, u: any) => void }
       <View style={{ padding: 18 }}>
         <View style={s.notice}>
           <Text style={s.noticeText}>
-            Prototype — all data is simulated. Verifications you submit here reach the demo
-            dashboard, not any real emergency service.
+            Demo build. Verifications you submit here reach the demo dashboard, not any
+            real emergency service.
           </Text>
         </View>
 
