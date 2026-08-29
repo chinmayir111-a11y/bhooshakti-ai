@@ -27,7 +27,7 @@
     "inside_zone": "Inside a monitored zone",
     "outside_zone": "Outside the monitored zones — it will still be reviewed by hand",
     "need_location": "Please provide a location before submitting.",
-    "demo_notice": "Prototype — all data is simulated. This does not reach any real emergency service.",
+    "demo_notice": "All data is simulated. This does not reach any real emergency service.",
     "emergency": "In an emergency call 112. This form is not an emergency line."
   },
   "hi": {
@@ -58,7 +58,7 @@
     "inside_zone": "निगरानी क्षेत्र के भीतर",
     "outside_zone": "निगरानी क्षेत्र के बाहर — फिर भी इसकी मैन्युअल समीक्षा होगी",
     "need_location": "कृपया भेजने से पहले स्थान दें।",
-    "demo_notice": "प्रोटोटाइप — समस्त डेटा सिम्युलेटेड है। यह किसी वास्तविक आपातकालीन सेवा तक नहीं पहुँचता।",
+    "demo_notice": "समस्त डेटा सिम्युलेटेड है। यह किसी वास्तविक आपातकालीन सेवा तक नहीं पहुँचता।",
     "emergency": "आपातकाल में 112 पर कॉल करें। यह फ़ॉर्म आपातकालीन लाइन नहीं है।"
   },
   "as": {
@@ -89,7 +89,7 @@
     "inside_zone": "নিৰীক্ষণ অঞ্চলৰ ভিতৰত",
     "outside_zone": "নিৰীক্ষণ অঞ্চলৰ বাহিৰত — তথাপি হাতেৰে পৰীক্ষা কৰা হ'ব",
     "need_location": "অনুগ্ৰহ কৰি পঠিওৱাৰ আগতে অৱস্থান দিয়ক।",
-    "demo_notice": "প্ৰ'ট'টাইপ — সকলো তথ্য অনুকৰণ কৰা। ই কোনো প্ৰকৃত জৰুৰীকালীন সেৱালৈ নাযায়।",
+    "demo_notice": "সকলো তথ্য অনুকৰণ কৰা। ই কোনো প্ৰকৃত জৰুৰীকালীন সেৱালৈ নাযায়।",
     "emergency": "জৰুৰী অৱস্থাত 112 নম্বৰত ফোন কৰক। এই ফৰ্ম জৰুৰীকালীন লাইন নহয়।"
   }
 }

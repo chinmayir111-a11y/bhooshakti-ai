@@ -46,10 +46,10 @@ export default function Login() {
         <div className="card" style={{ borderTop: 0 }}>
           <div className="card-body">
             <p className="notice">
-              <strong>Prototype — all data is simulated.</strong> Place names and approximate
-              coordinates are real; every measurement, event, sensor reading and alert is
-              synthetic. Risk output is decision support with a confidence score, never a
-              guaranteed prediction.
+              <strong>Demo system — not connected to any live service.</strong> Rainfall and
+              soil moisture are real observed data; landslide events, sensor readings and
+              alerts are simulated. Risk output is decision support with a confidence
+              score, never a guaranteed prediction.
             </p>
 
             <div className="grid-2" style={{ marginTop: 18 }}>
