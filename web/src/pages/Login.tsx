@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, setSession } from '../api/client'
-import { DemoBadge } from '../components/common'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [demos, setDemos] = useState<any[]>([])
   const [username, setUsername] = useState('authority')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    api.demoLogins().then((d) => {
-      setDemos(d)
-      if (d[0]) setPassword(d[0].password)
-    }).catch(() => setError('Cannot reach the API. Is the backend running on port 8000?'))
+    // Prefill the shared demo password, and surface early if the API is down.
+    api.demoLogins()
+      .then((d) => { if (d[0]) setPassword(d[0].password) })
+      .catch(() => setError('Cannot reach the API. Is the backend running on port 8000?'))
   }, [])
 
   async function submit(e: React.FormEvent, u = username, p = password) {
@@ -38,21 +36,13 @@ export default function Login() {
         <div style={{ background: 'var(--navy)', padding: '26px 30px' }}>
           <div style={{ color: '#fff', fontSize: 21, fontWeight: 700, letterSpacing: '.12em' }}>BHOOSHAKTI AI</div>
           <div style={{ color: '#A8BCD1', fontSize: 13, marginTop: 5 }}>
-            AI landslide early warning &amp; risk monitoring — North-East India
+            Landslide early warning for North-East India
           </div>
-          <div style={{ marginTop: 14 }}><DemoBadge /></div>
         </div>
 
         <div className="card" style={{ borderTop: 0 }}>
           <div className="card-body">
-            <p className="notice">
-              <strong>Demo system — not connected to any live service.</strong> Rainfall and
-              soil moisture are real observed data; landslide events, sensor readings and
-              alerts are simulated. Risk output is decision support with a confidence
-              score, never a guaranteed prediction.
-            </p>
-
-            <div className="grid-2" style={{ marginTop: 18 }}>
+            <div className="grid-2">
               <form onSubmit={submit}>
                 <div className="field">
                   <label className="label" htmlFor="u">Username</label>
@@ -68,30 +58,22 @@ export default function Login() {
                 <button className="btn block" type="submit" disabled={busy}>
                   {busy ? 'Signing in…' : 'Sign in'}
                 </button>
-                <p className="tiny muted" style={{ marginTop: 12, textAlign: 'center' }}>
-                  Citizens can <a href="/report">report a hazard</a> without an account.
+                <p className="tiny muted" style={{ marginTop: 12 }}>
+                  Demo build. Weather data is real; landslide events and alerts are not.
                 </p>
               </form>
 
               <div>
                 <span className="label">Demo accounts</span>
-                <div className="stack" style={{ marginTop: 10 }}>
-                  {demos.map((d) => (
-                    <button key={d.username} className="card" type="button"
-                            style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', font: 'inherit', padding: 0 }}
-                            onClick={(e) => { setUsername(d.username); setPassword(d.password); submit(e as any, d.username, d.password) }}>
-                      <div className="card-body" style={{ padding: 12 }}>
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <strong style={{ color: 'var(--navy)', fontSize: 13.5 }}>{d.label}</strong>
-                          <span className="pill">{d.role}</span>
-                        </div>
-                        <div className="tiny muted" style={{ marginTop: 4 }}>{d.description}</div>
-                        <div className="mono tiny" style={{ marginTop: 6 }}>{d.username} / {d.password}</div>
-                      </div>
-                    </button>
-                  ))}
-                  {demos.length === 0 && <p className="muted tiny">Loading demo accounts…</p>}
-                </div>
+                <p style={{ marginTop: 10, fontSize: 14.5, lineHeight: 1.65 }}>
+                  Sign in as <strong>authority</strong> for the full dashboard,
+                  <strong> field.officer</strong> for assigned zones and slope
+                  verification, or <strong>citizen</strong> for the public view.
+                  All three use the password <span className="mono">demo1234</span>.
+                </p>
+                <p style={{ marginTop: 12, fontSize: 14.5 }}>
+                  Citizens can <a href="/report">report a hazard</a> without an account.
+                </p>
               </div>
             </div>
           </div>

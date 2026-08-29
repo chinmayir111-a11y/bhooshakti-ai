@@ -347,16 +347,13 @@ def _explain(
     terrain_weak = (
         LITHOLOGY_WEAKNESS.get(inp.lithology, 0.6) + LAND_COVER_WEAKNESS.get(inp.land_cover, 0.6)
     ) / 2.0
-    if model_p >= 0.5:
-        model_text = (
-            f"Slope {inp.slope_deg:.0f}° on {litho} under {cover} at {inp.elevation_m:.0f} m — "
-            f"terrain closely matches past failure conditions in this belt"
-        )
-    else:
-        model_text = (
-            f"Slope {inp.slope_deg:.0f}° on {litho} under {cover} — "
-            f"terrain signature only weakly matches past failures"
-        )
+    # Only the terrain facts. An earlier version appended a verdict clause
+    # ("closely matches past failure conditions in this belt"), which was
+    # identical across every zone above the threshold and read as filler. The
+    # weight and direction already carry how much this term contributed.
+    model_text = (
+        f"Slope {inp.slope_deg:.0f}° on {litho} under {cover}, {inp.elevation_m:.0f} m"
+    )
     out.append(ContributingFactor(
         key="terrain_susceptibility",
         text=model_text,

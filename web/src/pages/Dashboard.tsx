@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [newAlertIds, setNewAlertIds] = useState<Set<number>>(new Set())
 
+  const [layersOpen, setLayersOpen] = useState(false)
   const [layers, setLayers] = useState<Layers>({
     risk: true, roads: true, villages: true, sensors: true, historical: false,
   })
@@ -158,19 +159,21 @@ export default function Dashboard() {
     <div className="page">
       {/* -------------------------------------------------- top strip */}
       <div className="top-strip">
-        {SEVERITY_ORDER.map((sev) => (
-          <div className="stat sev-tint" key={sev} style={{ borderLeftColor: SEVERITY_FILL[sev] }}>
-            <div className="stat-value">{counts[sev] ?? 0}</div>
-            <div className="stat-label">{sev.toLowerCase()} zones</div>
-          </div>
-        ))}
-        <div className="stat"><div className="stat-value">{summary?.active_alerts ?? 0}</div><div className="stat-label">Active alerts</div></div>
-        <div className="stat"><div className="stat-value">{summary?.unverified_reports ?? 0}</div><div className="stat-label">Unverified reports</div></div>
-        <div className="stat"><div className="stat-value">{summary?.roads_flagged ?? 0}</div><div className="stat-label">Roads flagged</div></div>
-        <div className="stat"><div className="stat-value">{summary?.villages_cut_off ?? 0}</div><div className="stat-label">Villages cut off</div></div>
+        <div className="stat sev-tint" style={{ borderLeftColor: SEVERITY_FILL.CRITICAL }}>
+          <div className="stat-value">{counts.CRITICAL ?? 0}</div>
+          <div className="stat-label">Critical zones</div>
+        </div>
+        <div className="stat sev-tint" style={{ borderLeftColor: SEVERITY_FILL.HIGH }}>
+          <div className="stat-value">{counts.HIGH ?? 0}</div>
+          <div className="stat-label">High zones</div>
+        </div>
         <div className="stat">
-          <div className="stat-value">{(summary?.sensors_total ?? 0) - (summary?.sensors_failed ?? 0)}<span style={{ fontSize: 14, color: 'var(--text-muted)' }}>/{summary?.sensors_total ?? 0}</span></div>
-          <div className="stat-label">Sensors reporting</div>
+          <div className="stat-value">{summary?.active_alerts ?? 0}</div>
+          <div className="stat-label">Active alerts</div>
+        </div>
+        <div className="stat">
+          <div className="stat-value">{summary?.villages_cut_off ?? 0}</div>
+          <div className="stat-label">Villages cut off</div>
         </div>
       </div>
 
@@ -282,17 +285,26 @@ export default function Dashboard() {
             selectedZoneId={selectedZoneId} onSelectZone={selectZone}
           />
 
-          <div className="map-panel tl">
-            <div className="map-panel-head"><span className="label">Layers</span></div>
-            <div className="map-panel-body">
-              {LAYER_LABELS.map(([key, label]) => (
-                <label className="toggle-row" key={key}>
-                  <input type="checkbox" checked={layers[key]}
-                         onChange={(e) => setLayers((l) => ({ ...l, [key]: e.target.checked }))} />
-                  {label}
-                </label>
-              ))}
-            </div>
+          {/* Collapsed by default: expanded it covers the top-left of the map,
+              which is exactly where the escalating zones sit during the demo. */}
+          <div className={`map-panel tl${layersOpen ? '' : ' is-collapsed'}`}>
+            <button className="map-panel-head as-button" type="button"
+                    aria-expanded={layersOpen}
+                    onClick={() => setLayersOpen((o) => !o)}>
+              <span className="label">Layers</span>
+              <span className="chevron">{layersOpen ? '\u2212' : '+'}</span>
+            </button>
+            {layersOpen && (
+              <div className="map-panel-body">
+                {LAYER_LABELS.map(([key, label]) => (
+                  <label className="toggle-row" key={key}>
+                    <input type="checkbox" checked={layers[key]}
+                           onChange={(e) => setLayers((l) => ({ ...l, [key]: e.target.checked }))} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="map-panel bl">
@@ -314,6 +326,18 @@ export default function Dashboard() {
                 </span>
                 Sensor (hollow = failed)
               </div>
+
+              {summary && (
+                <div className="mini-stats">
+                  <div><span>{counts.MODERATE ?? 0}</span> moderate</div>
+                  <div><span>{counts.LOW ?? 0}</span> low</div>
+                  <div><span>{summary.unverified_reports}</span> unverified reports</div>
+                  <div><span>{summary.roads_flagged}</span> roads flagged</div>
+                  <div>
+                    <span>{summary.sensors_total - summary.sensors_failed}/{summary.sensors_total}</span> sensors
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

@@ -39,7 +39,6 @@ export function AppHeader() {
         <NavLink to="/report">Report</NavLink>
         {authority && <NavLink to="/audit">Audit</NavLink>}
       </nav>
-      <DemoBadge />
       {user ? (
         <>
           <div className="who">
@@ -92,20 +91,48 @@ export function FactorList({ factors, limit }: { factors: Array<{ text: string; 
   )
 }
 
-export function DeliveryChips({ deliveries }: { deliveries: Array<{ channel: string; status: string; detail?: string }> }) {
-  return (
-    <div className="alert-chans">
-      {deliveries.map((d, i) => (
-        <span
-          key={i}
-          className={`chan ${d.status === 'SENT' ? 'ok' : d.status === 'FAILED' ? 'fail' : 'sim'}`}
-          title={`${d.status}${d.detail ? ` — ${d.detail}` : ''}`}
-        >
-          {d.channel}{d.status === 'SIMULATED' ? ' · sim' : ''}
-        </span>
-      ))}
-    </div>
-  )
+const CHANNEL_NAMES: Record<string, string> = {
+  email: 'Email', sms: 'SMS', push: 'Push',
+  websocket: 'WebSocket', console: 'Console',
+}
+
+/**
+ * One line per alert, deduplicated by channel.
+ *
+ * A single alert produces one delivery row per recipient, so an email to three
+ * addresses used to render three identical "email" chips. Operators read the
+ * channel, not the recipient count, so the channels are collapsed and each is
+ * named once. Detail per recipient is still on the Alerts page.
+ */
+export function DeliveryChips({ deliveries }: {
+  deliveries: Array<{ channel: string; status: string; detail?: string }>
+}) {
+  if (!deliveries?.length) return null
+
+  const byChannel = new Map<string, Set<string>>()
+  for (const d of deliveries) {
+    if (!byChannel.has(d.channel)) byChannel.set(d.channel, new Set())
+    byChannel.get(d.channel)!.add(d.status)
+  }
+
+  const sent: string[] = []
+  const simulated: string[] = []
+  const failed: string[] = []
+  for (const [channel, statuses] of byChannel) {
+    const name = CHANNEL_NAMES[channel] ?? channel
+    // A channel counts as delivered if any recipient succeeded; as failed only
+    // when nothing got through.
+    if (statuses.has('SENT')) sent.push(name)
+    else if (statuses.has('SIMULATED')) simulated.push(name)
+    else failed.push(name)
+  }
+
+  const parts: string[] = []
+  if (sent.length) parts.push(`${sent.join(', ')} sent`)
+  if (simulated.length) parts.push(`${simulated.join(', ')} \u2014 simulated`)
+  if (failed.length) parts.push(`${failed.join(', ')} failed`)
+
+  return <div className="chan-line">{parts.join('  \u00b7  ')}</div>
 }
 
 /** Rainfall bars with the soil-moisture trace over the top. */
