@@ -1,9 +1,8 @@
+
 # BHOOSHAKTI AI
 
 **AI-powered landslide early warning and risk monitoring for North-East India.**
 
-Smart India Hackathon 2026 · Problem Statement **26001** (MDoNER — Disaster Management, Software)
-Team **DEADLINE SURVIVORS**
 
 > ### ⚠ WHAT IS REAL HERE, AND WHAT IS NOT
 > **Rainfall and soil moisture are real observed data** — hourly ERA5 reanalysis and
@@ -42,15 +41,15 @@ on synthetic data would misrepresent real-world skill.
 
 Pick **one** of the two paths below. Docker works identically on Windows, macOS and
 Linux and needs nothing else installed. The native path is faster and is what the
-prototype was developed on.
+project was developed on.
 
 ### Path A — Docker (any OS, nothing else to install)
 
 Requires [Docker Desktop](https://docs.docker.com/get-started/get-docker/).
 
 ```bash
-git clone https://github.com/chinmayir111-a11y/bhooshakti.git
-cd bhooshakti
+git clone https://github.com/chinmayir111-a11y/bhooshakti-ai.git
+cd bhooshakti-ai
 cp .env.example .env
 
 docker compose up --build                                # starts db, mqtt, api, web
@@ -232,47 +231,45 @@ back to the statistical nowcast (`ml/rainfall_trend.py`) when it is not.
 
 ---
 
-## The 2-minute demo — read this aloud while presenting
+## Demo walkthrough
 
 Sign in as **`authority`**. Press **Simulate Monsoon Event** (leave speed at 1× for a
-~60-second run; 4× if you are short of time). Each step toasts on screen.
+~60-second run). Each step toasts on screen.
 
-1. **"This is the Sikkim–Darjeeling corridor. 25 monitored zones, live over WebSocket —
-   nothing here polls."** The map is a risk choropleth; the left rail is the live alert
-   feed; the top strip counts zones by severity.
+1. **The Sikkim–Darjeeling corridor.** 25 monitored zones, live over WebSocket — nothing
+   here polls. The map is a risk choropleth; the left rail is the live alert feed; the top
+   strip counts zones by severity.
 
-2. **Step 1–2 — "Rainfall is ramping across three zones, and soil moisture follows with a
-   lag."** These are genuine MQTT messages published to Mosquitto and ingested back
-   through the API's own subscriber. The sensor layer updates live.
+2. **Step 1–2 — rainfall ramps across three zones, and soil moisture follows with a lag.**
+   These are genuine MQTT messages published to Mosquitto and ingested back through the
+   API's own subscriber. The sensor layer updates live.
 
-3. **Step 3 — "Risk recomputes. Two zones go HIGH, one goes CRITICAL."** Click
+3. **Step 3 — risk recomputes. Two zones go HIGH, one goes CRITICAL.** Click
    **Tindharia–Paglajhora**. The drawer shows the risk score, the **confidence**, and the
    **ranked contributing factors in plain language** — "72h rainfall 215 mm, 2.7× the
-   seasonal normal for this zone". *This is the slide to linger on.*
+   seasonal normal for this zone".
 
-4. **Step 4 — "Alerts fire automatically and dispatch on every channel."** Email, SMS,
+4. **Step 4 — alerts fire automatically and dispatch on every channel.** Email, SMS,
    push, WebSocket and console, each with its delivery status. Channels marked `sim` are
    honestly labelled as simulated.
 
-5. **Step 5 — "A field officer confirms slope movement on site."** Note what happens:
+5. **Step 5 — a field officer confirms slope movement on site.** Note what happens:
    **the confirmation escalates the zone and raises confidence**. Ground truth outranks
    telemetry — that is what the VERIFY stage is for, and it is visible in the factor list.
 
-6. **Step 6 — "A citizen report arrives."** It is geo-validated by PostGIS `ST_Contains`
-   against the monitored zones before a human ever sees it, and lands in
-   **/moderation**.
+6. **Step 6 — a citizen report arrives.** It is geo-validated by PostGIS `ST_Contains`
+   against the monitored zones before a human ever sees it, and lands in **/moderation**.
 
-7. **Step 7 — "NH-110 is blocked, and four settlements lose road access."** `ST_Intersects`
+7. **Step 7 — NH-110 is blocked, and four settlements lose road access.** `ST_Intersects`
    picks the lifeline road crossing the zone; `ST_DWithin` finds every settlement inside
    the cut-off radius. Tindharia, Sonada, Ghum and Paglajhora — 13,500 residents.
 
-8. **Step 8 — "And here is the prioritised response list."** Close the road, evacuate,
-   move SDRF, open a relief point, broadcast in three languages, fix the failed sensors.
+8. **Step 8 — the prioritised response list.** Close the road, evacuate, move SDRF, open a
+   relief point, broadcast in three languages, fix the failed sensors.
 
-**Then press `Reset Demo`** — it restores the seeded baseline so you can run it again for
-the next judge.
+**Then press `Reset Demo`** — it restores the seeded baseline so you can run it again.
 
-**Two more things worth showing if you have 30 seconds:**
+**Also worth trying:**
 
 - **`/report`** on a phone — the citizen form in **English / हिन्दी / অসমীয়া**, no login.
 - **The field app with the network off** — queue a verification, watch the banner say
@@ -305,7 +302,7 @@ the next judge.
 | | |
 |---|---|
 | Sensor telemetry | `sensor_simulator.py` and the demo timeline. No physical node exists. |
-| The monsoon event in the demo | Simulated on top of the real baseline weather — we cannot wait for an actual landslide during a two-minute demo. |
+| The monsoon event in the demo | Simulated on top of the real baseline weather — you cannot wait for an actual landslide during a two-minute demo. |
 | The 120 historical landslide events | Synthetic, with plausible feature values. **Not** an official GSI/NRSC inventory. |
 | Zone polygons | Generated shapes around real centroids. **Not** surveyed administrative or geological boundaries. |
 | Terrain attributes (slope, aspect, elevation, lithology, land cover) | Plausible values chosen for the demo, not survey measurements. |
@@ -327,7 +324,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@gmail.com
 SMTP_PASSWORD=xxxxxxxxxxxxxxxx
-ALERT_TEST_EMAIL=abjgd108@gmail.com
+ALERT_TEST_EMAIL=you@gmail.com
 ```
 
 Then:
@@ -349,185 +346,3 @@ roads and settlements, the deep link, and the delivery result. The dashboard's
 ---
 
 ## Architecture
-
-```
-                    ┌──────────────────────────┐
-   MQTT             │  React + Vite dashboard  │  Expo field app
-   sensor_simulator │  Leaflet · WebSocket     │  offline-first queue
-        │           └────────────┬─────────────┘         │
-        │  bhooshakti/sensors/+  │  REST + WS            │ REST (batch replay)
-        ▼                        ▼                       ▼
-   ┌────────────────────────────────────────────────────────────┐
-   │                    FastAPI  ·  /docs  ·  /ws/live          │
-   │  auth · zones · risk · alerts · reports · field · demo     │
-   ├────────────────────────────────────────────────────────────┤
-   │  ml/  features → XGBoost → rainfall trend → RISK FUSION    │
-   │       score 0-100 · severity · confidence · factors[]      │
-   ├────────────────────────────────────────────────────────────┤
-   │  notify/  console · websocket · email(SMTP) · sms · push   │
-   └───────────────────────────┬────────────────────────────────┘
-                               ▼
-              PostgreSQL 18 + PostGIS 3.6
-              ST_Contains · ST_Intersects · ST_DWithin
-```
-
-### Risk fusion
-
-`backend/ml/fusion.py` — pure, no I/O, and the most heavily tested module in the project.
-
-```
-hazard = 0.55·model_probability          (XGBoost susceptibility)
-       + 0.18·rainfall_pressure          (72h total ÷ this zone's own seasonal normal)
-       + 0.14·saturation_pressure        (soil moisture vs the saturation threshold)
-       + 0.13·forecast_pressure          (24h outlook)
-       ± field_verification              (a confirmed on-site check outranks telemetry)
-
-risk_score = 100 · clamp(hazard)
-severity   = LOW <25 ≤ MODERATE <50 ≤ HIGH <75 ≤ CRITICAL
-```
-
-Confidence starts at 0.90 and is reduced by failed sensors, stale telemetry, model /
-environment disagreement, and rainfall far outside the training range. It is raised when
-a field officer has actually been on the slope. **It can never reach 1.0** — there is a
-test asserting exactly that.
-
-### Layout
-
-```
-backend/
-  app/          FastAPI app, routers, auth, audit, WebSocket hub, MQTT ingest
-    services/   spatial.py (all PostGIS SQL) · risk_service.py · demo_engine.py
-    notify/     dispatcher, channel adapters, trilingual alert templates
-  ml/           features.py · fusion.py · rainfall_trend.py
-  scripts/      seed.py · train.py · sensor_simulator.py · test_alert_email.py
-                calibrate_demo.py · geodata.py
-  tests/        test_fusion.py (32) · test_spatial.py (19)
-web/            React + Vite + TypeScript, Leaflet, one WebSocket
-mobile/         Expo (Android + web), offline queue + 9 tests
-infra/          Mosquitto config
-```
-
----
-
-## Tests
-
-```bash
-make test
-```
-
-| Suite | Covers | Count |
-|---|---|---|
-| `backend/tests/test_fusion.py` | Severity bands, monotonicity, confidence behaviour, verification uplift, explanation quality | 32 |
-| `backend/tests/test_spatial.py` | Real `ST_Contains` / `ST_Intersects` / `ST_DWithin` against PostGIS, the blocking cascade, GeoJSON validity | 19 |
-| `backend/tests/test_weather.py` | Open-Meteo unit conversion, forecast/observation separation, sensor precedence, raw-value audit trail | 14 |
-| `mobile/src/offline/queue.test.ts` | Offline retention, restart survival, idempotent replay, partial settlement, retry limits, concurrent-flush collapse, corrupt storage | 9 |
-
-The spatial tests run against a real seeded PostGIS database on purpose — mocking the
-database would test nothing about the claim being made. They skip cleanly if none is
-reachable.
-
-**Verified offline:** with Open-Meteo pointed at an unreachable host, the risk engine still
-scores all 25 zones and the demo timeline produces byte-identical results from cache.
-
-Several of these tests caught real bugs. The offline queue was double-sending under
-concurrent flush (the guard was claimed after an `await`). The MQTT ingest ran a full
-aggregate query per message on paho's single callback thread, so a 150-message demo burst
-took longer to drain than the demo ran — one zone silently kept its pre-storm soil
-moisture and never escalated. And the first migration baseline called
-`metadata.create_all()`, which meant it tracked whatever the models looked like *today*,
-so the next migration tried to add columns the baseline had already created.
-
----
-
-## API
-
-`GET /docs` for the full interactive spec.
-
-| | |
-|---|---|
-| `GET /zones` · `/zones/{id}` · `/zones/{id}/risk` | Zones as GeoJSON with live risk |
-| `POST /risk/recompute` | Recompute every zone (or a subset) |
-| `GET /alerts` · `POST /alerts/test` | Alert history; send a real test alert |
-| `GET /reports` · `POST /reports` · `POST /reports/{id}/moderate` | Citizen reporting and moderation |
-| `POST /field/verify` · `/field/verify/batch` | Verification, single and offline-batch |
-| `GET /infrastructure` · `/sensors` · `/historical` | Map layers |
-| `POST /demo/simulate` · `POST /demo/reset` | The scripted timeline |
-| `GET /weather/status` · `POST /weather/refresh` | Cached weather provenance and freshness; re-pull Open-Meteo |
-| `GET /audit` | The audit trail |
-| `WS /ws/live` | Everything, pushed |
-
----
-
-## Known limits
-
-Honest list, because a judge will ask.
-
-- **The model is trained on real weather but synthetic landslide labels.** The rainfall
-  and soil moisture going in are genuine observations; the 120 events it learns from are
-  not. So it has learned a plausible rainfall–failure relationship, not the actual one.
-  Retraining the labels on the **GSI Bhukosh** landslide inventory is the first real-world
-  step — and because the weather side is already real, that is now the *only* substitution
-  the model needs.
-- **No email has actually been delivered** in this build — credentials were never
-  configured. The code path is complete and tested up to the SMTP handshake.
-- **Satellite change detection is not implemented.** The extension point is documented in
-  `DEPLOYMENT.md`; a PyTorch/TensorFlow model would slot in beside the XGBoost one as an
-  additional fusion input, not a replacement.
-- **The demo storm is simulated on top of real weather.** The baseline is genuine; the
-  monsoon event is not. `scripts/calibrate_demo.py` measures which rainfall totals land
-  each zone in which band and the timeline uses those measured numbers, so the scripted
-  story survives a reseed. Against real ERA5 normals (25–80 mm/72h here) the storm targets
-  are 26–45 mm/24h — far smaller than the synthetic-weather era needed, and far more
-  realistic.
-- **Zone polygons are generated shapes**, not surveyed boundaries. Terrain attributes
-  (slope, aspect, lithology, land cover) are plausible values, not survey measurements —
-  these are the next thing to replace with SRTM/CartoDEM and GSI geology.
-- **Nothing is deployed.** `DEPLOYMENT.md` describes the target cloud architecture.
-
----
-
-## Extension points
-
-- **Satellite change detection** — `backend/ml/` alongside `fusion.py`; feed a
-  before/after InSAR or optical change score in as an additional fusion component.
-- **Mapbox GL JS** — `web/src/components/MapView.tsx`, `createBaseLayer()`. Set
-  `VITE_MAPBOX_TOKEN` and the layer swaps; no overlay code changes.
-- **Real SMS** — set `SMS_PROVIDER=twilio` or `msg91` plus credentials. Adapters are
-  already written against the plain REST APIs, so no vendor SDK is needed.
-- **More languages** — `web/src/i18n/strings.json` and
-  `backend/app/notify/templates.py`.
-- **Real terrain** — `scripts/geodata.py` holds hand-entered slope/lithology values.
-  Open-Meteo already returns a grid `elevation` per zone, which is the easiest first
-  substitution; SRTM or CartoDEM gives the rest.
-
----
-
-*Prototype built for SIH 2026 PS 26001. Not for operational use.*
-
-## Contributing
-
-Contributions are welcome. To keep development consistent across the backend,
-web dashboard, and mobile field app, use the workflow below.
-
-For a quick demonstration of the complete BHOOSHAKTI AI workflow:
-
-1. Start PostgreSQL/PostGIS and Mosquitto.
-2. Start the FastAPI backend on port `8000`.
-3. Start the Vite web application on port `5173`.
-4. Open `http://localhost:5173`.
-5. Sign in using the `authority` demo account.
-6. Select **Simulate Monsoon Event** to demonstrate the prediction, monitoring, verification, alert, and response workflow.
-
-### Demo Credentials
-
-All demo accounts use the password `demo1234`.
-
-| Username | Role | Access |
-|---|---|---|
-| `authority` | Authority | Full dashboard, alerts, moderation, audit and demo controls |
-| `field.officer` | Field Officer | Assigned zones and field verification |
-| `citizen` | Citizen | Citizen reporting functionality |
-
-> **Note:** BHOOSHAKTI AI clearly distinguishes real weather observations from simulated sensor telemetry, historical landslide events, terrain attributes, infrastructure data and the demonstration monsoon event. See **What is real vs simulated** for the complete data provenance.
-
-*Prototype built for SIH 2026 PS 26001. Not for operational use.*
