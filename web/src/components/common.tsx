@@ -1,44 +1,65 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { clearSession, getUser, type Severity } from '../api/client'
+import { clearSession, getUser } from '../api/client'
+import { useControl } from '../control/context'
+import { SeverityChip } from './Severity'
 
-export const SEVERITY_ORDER: Severity[] = ['CRITICAL', 'HIGH', 'MODERATE', 'LOW']
-
-export const SEVERITY_FILL: Record<Severity, string> = {
-  LOW: '#D6DFEA', MODERATE: '#A8BCD1', HIGH: '#5C7EA4', CRITICAL: '#1F3864',
-}
-
-export function SeverityChip({ value }: { value: Severity | string }) {
-  return <span className={`sev sev-${value}`}>{value}</span>
-}
+export { SEVERITY_FILL, SEVERITY_ORDER, SeverityChip, TierChip } from './Severity'
 
 export function DemoBadge({ dark = false }: { dark?: boolean }) {
   return (
-    <span className={`demo-badge${dark ? ' dark' : ''}`} title="Every figure on this screen is simulated. No live government feed or physical sensor is connected.">
-      DEMO DATA
+    <span className={`demo-badge${dark ? ' dark' : ''}`} title="Hazard events, sensors and zone boundaries on this screen are simulated. Weather and the historical landslide record are real.">
+      DEMO
     </span>
   )
 }
 
-/** Every page carries the product name, a one-line subtitle and the badge. */
+/** Provenance badge next to a number: REAL · Open-Meteo, REAL · live sensor, SIMULATED. */
+export function Src({ kind, label }: { kind: 'real' | 'live' | 'sim'; label?: string }) {
+  const { sources } = useControl()
+  if (!sources) return null
+  const text = label ?? (kind === 'real' ? 'REAL' : kind === 'live' ? 'REAL · live sensor' : 'SIMULATED')
+  return <span className={`provbadge ${kind}`}>{text}</span>
+}
+
+/** Control-room header: brand, nav, the three global toggles, identity. */
 export function AppHeader() {
   const user = getUser()
   const navigate = useNavigate()
   const authority = user?.role === 'authority'
+  const { dark, setDark, sources, setSources, sound, setSound } = useControl()
+
+  async function toggleSound() {
+    const next = !sound
+    setSound(next)
+    if (next && 'Notification' in window && Notification.permission === 'default') {
+      try { await Notification.requestPermission() } catch { /* ignore */ }
+    }
+  }
 
   return (
     <header className="app-header">
       <div className="brand">
         <span className="brand-mark">BHOOSHAKTI AI</span>
-        <span className="brand-sub">Landslide early warning &amp; risk monitoring — North-East India</span>
+        <span className="brand-sub">Control room — landslide early warning, North-East India</span>
       </div>
       <div className="header-spacer" />
       <nav className="nav">
-        <NavLink to="/" end>Dashboard</NavLink>
-        <NavLink to="/alerts">Alerts</NavLink>
-        {authority && <NavLink to="/moderation">Moderation</NavLink>}
-        <NavLink to="/report">Report</NavLink>
-        {authority && <NavLink to="/audit">Audit</NavLink>}
+        <NavLink to="/control" end>Dashboard</NavLink>
+        <NavLink to="/control/alerts">Alerts</NavLink>
+        {authority && <NavLink to="/control/moderation">Reports</NavLink>}
+        <NavLink to="/replay">Replay</NavLink>
+        {authority && <NavLink to="/control/audit">Audit</NavLink>}
+        <NavLink to="/">Citizen app</NavLink>
       </nav>
+      <div className="hdr-controls">
+        <button className={`hdr-toggle${sources ? ' on' : ''}`} onClick={() => setSources(!sources)}
+                title="Label every number with where it comes from">Show data sources</button>
+        <button className={`hdr-toggle${sound ? ' on' : ''}`} onClick={toggleSound}
+                title="Chime and browser notification on a new WARNING">{sound ? '🔔 Sound on' : '🔕 Sound off'}</button>
+        <button className={`hdr-toggle${dark ? ' on' : ''}`} onClick={() => setDark(!dark)} title="Dark mode">
+          {dark ? '☀' : '☾'}
+        </button>
+      </div>
       {user ? (
         <>
           <div className="who">
@@ -92,47 +113,32 @@ export function FactorList({ factors, limit }: { factors: Array<{ text: string; 
 }
 
 const CHANNEL_NAMES: Record<string, string> = {
-  email: 'Email', sms: 'SMS', push: 'Push',
+  email: 'Email', sms: 'SMS', push: 'Push', voice: 'Voice call',
   websocket: 'WebSocket', console: 'Console',
 }
 
-/**
- * One line per alert, deduplicated by channel.
- *
- * A single alert produces one delivery row per recipient, so an email to three
- * addresses used to render three identical "email" chips. Operators read the
- * channel, not the recipient count, so the channels are collapsed and each is
- * named once. Detail per recipient is still on the Alerts page.
- */
+/** One line per alert, deduplicated by channel. */
 export function DeliveryChips({ deliveries }: {
   deliveries: Array<{ channel: string; status: string; detail?: string }>
 }) {
   if (!deliveries?.length) return null
-
   const byChannel = new Map<string, Set<string>>()
   for (const d of deliveries) {
     if (!byChannel.has(d.channel)) byChannel.set(d.channel, new Set())
     byChannel.get(d.channel)!.add(d.status)
   }
-
-  const sent: string[] = []
-  const simulated: string[] = []
-  const failed: string[] = []
+  const sent: string[] = [], simulated: string[] = [], failed: string[] = []
   for (const [channel, statuses] of byChannel) {
     const name = CHANNEL_NAMES[channel] ?? channel
-    // A channel counts as delivered if any recipient succeeded; as failed only
-    // when nothing got through.
     if (statuses.has('SENT')) sent.push(name)
     else if (statuses.has('SIMULATED')) simulated.push(name)
     else failed.push(name)
   }
-
   const parts: string[] = []
   if (sent.length) parts.push(`${sent.join(', ')} sent`)
-  if (simulated.length) parts.push(`${simulated.join(', ')} \u2014 simulated`)
+  if (simulated.length) parts.push(`${simulated.join(', ')} — simulated`)
   if (failed.length) parts.push(`${failed.join(', ')} failed`)
-
-  return <div className="chan-line">{parts.join('  \u00b7  ')}</div>
+  return <div className="chan-line">{parts.join('  ·  ')}</div>
 }
 
 /** Rainfall bars with the soil-moisture trace over the top. */
@@ -141,11 +147,9 @@ export function Sparkline({ data }: { data: Array<{ rainfall_mm: number; soil_mo
   const W = 380, H = 62
   const maxRain = Math.max(1, ...data.map((d) => d.rainfall_mm))
   const bw = W / data.length
-
   const soilPts = data
     .map((d, i) => (d.soil_moisture_pct == null ? null : `${i * bw + bw / 2},${H - (d.soil_moisture_pct / 100) * H}`))
     .filter(Boolean).join(' ')
-
   return (
     <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
          aria-label="Hourly rainfall with soil moisture trace">
@@ -176,3 +180,5 @@ export function fmtTime(iso: string | null | undefined): string {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   })
 }
+
+export { SeverityChip as Sev }
