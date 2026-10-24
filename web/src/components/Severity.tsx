@@ -70,14 +70,19 @@ export function SeverityChip({ value, size = 14, label }: { value: Severity | st
   )
 }
 
+/** What the API tiers are called on screen. API values never change. */
+export const TIER_LABEL: Record<string, string> = { ADVISORY: 'Be alert (unconfirmed)', WARNING: 'Danger (confirmed)' }
+export const TIER_SHORT: Record<string, string> = { ADVISORY: 'Be alert', WARNING: 'Danger' }
+const STATUS_LABEL: Record<string, string> = { RESOLVED: 'resolved', CANCELLED: 'cancelled', EXPIRED: 'expired', SUPERSEDED: 'superseded' }
+
 /** ADVISORY (machine, unconfirmed) vs WARNING (human-confirmed / model CRITICAL). */
 export function TierChip({ tier, status }: { tier?: string; status?: string }) {
   const tr = tier === 'ADVISORY' ? 'ADVISORY' : 'WARNING'
   const closed = status && status !== 'ACTIVE'
   return (
     <span className={`tier tier-${tr}${closed ? ' closed' : ''}`}
-          title={tr === 'ADVISORY' ? 'Machine-issued, awaiting human confirmation' : 'Human-confirmed or model CRITICAL'}>
-      {tr}{closed ? ` · ${status}` : ''}
+          title={tr === 'ADVISORY' ? 'Issued by the system from unverified evidence (API tier ADVISORY)' : 'Confirmed by an officer, or model CRITICAL (API tier WARNING)'}>
+      {TIER_LABEL[tr]}{closed ? ` · ${STATUS_LABEL[status!] ?? status!.toLowerCase()}` : ''}
     </span>
   )
 }

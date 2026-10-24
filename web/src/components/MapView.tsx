@@ -9,7 +9,7 @@ import 'leaflet/dist/leaflet.css'
 import { SEVERITY_FILL, asSeverity } from './Severity'
 import type { Severity } from '../api/client'
 
-const INK = '#0F766E'
+const INK = '#2F6B3A'
 
 export interface Layers {
   risk: boolean; roads: boolean; villages: boolean
@@ -95,7 +95,7 @@ export default function MapView({
         layer.bindTooltip(
           `<strong>${p.code} — ${p.name}</strong><br>${p.district}, ${p.state}` +
           `<br>${p.severity}${p.risk_score != null ? ` · ${p.risk_score.toFixed(0)}/100` : ''}` +
-          (p.confidence != null ? ` · confidence ${(p.confidence * 100).toFixed(0)}%` : ''),
+          (p.confidence != null ? ` · ${(p.confidence * 100).toFixed(0)}% sure` : ''),
           { sticky: true },
         )
         layer.on('click', () => selectRef.current(p.id))

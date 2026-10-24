@@ -6,6 +6,7 @@
  * Acknowledge (stop the clock), CONFIRM (upgrade to a WARNING for the zone)
  * and DISMISS (false report — an all-clear goes to whoever got the advisory).
  */
+import { IconCheck } from '../components/Pictograms'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { API_BASE, api, type CitizenReport } from '../api/client'
@@ -23,7 +24,7 @@ export function EscalationLine({ r, now }: { r: CitizenReport; now: number }) {
   const e = r.escalation
   if (!e) return null
   if (!e.open) {
-    return <span className="tiny muted">{e.acknowledged_by ? `Seen by ${e.acknowledged_by} ${timeAgo(e.acknowledged_at)}` : 'Closed'}</span>
+    return <span className="tiny muted">{e.acknowledged_by ? `${e.acknowledged_by} is checking · ${timeAgo(e.acknowledged_at)}` : 'Closed'}</span>
   }
   const parts: React.ReactNode[] = []
   parts.push(<span key="l" className="tiny muted">Level {e.level} paged</span>)
@@ -32,12 +33,12 @@ export function EscalationLine({ r, now }: { r: CitizenReport; now: number }) {
     parts.push(<span key="n" className={`countdown${c === 'now' ? ' now' : ''}`} title={e.next_step_label ?? ''}>⏱ {e.next_step_label?.replace('Escalate to ', '→ ') ?? 'escalate'} in {c}</span>)
   }
   if (e.advisory_alert_id) {
-    parts.push(<Link key="a" to="/control/alerts" className="tier tier-ADVISORY" style={{ textDecoration: 'none' }}>ADVISORY #{e.advisory_alert_id} sent</Link>)
+    parts.push(<Link key="a" to="/control/alerts" className="tier tier-ADVISORY" style={{ textDecoration: 'none' }}>Be alert #{e.advisory_alert_id} sent</Link>)
   } else if (e.advisory_at) {
     const c = countdown(e.advisory_at, now)
-    parts.push(<span key="adv" className={`countdown${c === 'now' ? ' now' : ''}`}>📣 auto-ADVISORY in {c}</span>)
+    parts.push(<span key="adv" className={`countdown${c === 'now' ? ' now' : ''}`}>auto "be alert" in {c}</span>)
   }
-  if (e.warning_alert_id) parts.push(<span key="w" className="tier tier-WARNING">WARNING #{e.warning_alert_id}</span>)
+  if (e.warning_alert_id) parts.push(<span key="w" className="tier tier-WARNING">Danger #{e.warning_alert_id}</span>)
   return <div className="row" style={{ gap: 10 }}>{parts}</div>
 }
 
@@ -67,7 +68,7 @@ export default function Moderation() {
   return (
     <div className="page">
       <PageTitle title="Citizen reports"
-                 subtitle="Scored for corroboration the moment they arrive, and escalated automatically until a human acts. CONFIRM upgrades to a WARNING; DISMISS sends the all-clear.">
+                 subtitle="Scored for corroboration the moment they arrive, and escalated automatically until a human acts. CONFIRM marks it a confirmed danger; DISMISS sends the all-clear.">
         <DemoBadge dark />
       </PageTitle>
       <div className="page-body">
@@ -148,11 +149,11 @@ export default function Moderation() {
                           <div className="esc-actions">
                             {!r.escalation.acknowledged_at && (
                               <button className="btn ghost sm" disabled={busy === r.id} onClick={() => act(r.id, () => api.acknowledgeReport(r.id))}>
-                                ✓ Acknowledge (stop the clock)
+                                <IconCheck size={15} />I'm checking (stop the clock)
                               </button>
                             )}
                             <button className="btn confirm sm" disabled={busy === r.id} onClick={() => act(r.id, () => api.confirmReport(r.id, notes[r.id] ?? ''))}>
-                              CONFIRM → WARNING
+                              CONFIRM: danger
                             </button>
                             <button className="btn dismiss sm" disabled={busy === r.id} onClick={() => act(r.id, () => api.dismissReport(r.id, notes[r.id] ?? ''))}>
                               DISMISS · all clear
@@ -176,7 +177,7 @@ export default function Moderation() {
           <p className="notice tiny">
             Ladder: on arrival the on-duty moderator is paged (websocket + SMS + email). Every 10 unacknowledged minutes the
             next officer in the district roster is paged. At 20 minutes with a score of 60 or more — or at once with 85 — an
-            ADVISORY goes to everyone registered in the zone, worded as unverified. Every automatic step is in the audit log with the score breakdown.
+            a "be alert" (unconfirmed) notice goes to everyone registered in the zone, worded as unverified. Every automatic step is in the audit log with the score breakdown.
           </p>
         </div>
       </div>

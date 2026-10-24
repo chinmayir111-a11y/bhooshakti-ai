@@ -1,16 +1,19 @@
 /**
- * Control room. Four live counters, a ticker, the map (3D terrain by
- * default, 2D/low-data on request), the alert feed and the escalation panel.
- * Every number can be labelled with its source ("Show data sources").
+ * Control room. One plain sentence of what needs attention, four live
+ * counters, a ticker, the map (3D terrain by default, 2D/low-data on request
+ * or automatically on a slow connection), the alert feed and the reports
+ * waiting for a check. Every number can be labelled with its source ("Show
+ * data sources"); labels are hidden until that switch is on.
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
-import type { Column, Pin, Pulse } from '../components/Map3D'
+import type { Column, Pin, Pulse, View } from '../components/Map3D'
 import {
   DeliveryChips, FactorList, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
-import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape } from '../components/Severity'
+import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
+import { IconAlert, IconCheck, IconChevron, IconExternal, IconPause, IconPlay } from '../components/Pictograms'
 import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
@@ -21,6 +24,12 @@ const Map3D = lazy(() => import('../components/Map3D'))
 
 interface Toast { id: number; step?: string; text: string }
 interface Tick { id: number; text: string; kind: string; at: string }
+
+/** 2D by default on connections that would struggle with vector + terrain tiles. */
+function slowConnection(): boolean {
+  const c = (navigator as any).connection
+  return !!c && (c.saveData === true || /(^|-)(2g|3g)$/.test(String(c.effectiveType || '')))
+}
 
 const LAYER_LABELS: Array<[keyof Layers, string]> = [
   ['risk', 'Zone risk'], ['roads', 'Roads'], ['villages', 'Villages'],
@@ -61,7 +70,10 @@ export default function Dashboard() {
   const [pulses, setPulses] = useState<Pulse[]>([])
   const tickSeq = useRef(0)
 
-  const [mode, setMode] = useLocalFlag('bhooshakti.map2d', false)      // true = 2D / low data
+  const [mode, setMode] = useLocalFlag('bhooshakti.map2d', slowConnection())      // true = 2D / low data
+  const [demoOpen, setDemoOpen] = useState(false)
+  const [tour, setTour] = useState<{ id: number; stops: View[]; onDone?: () => void } | null>(null)
+  const [drawerMore, setDrawerMore] = useState(false)
   const [satellite, setSatellite] = useLocalFlag('bhooshakti.satellite', false)
   const [railTab, setRailTab] = useState<'alerts' | 'reports'>('alerts')
   const [layersOpen, setLayersOpen] = useState(false)
@@ -145,7 +157,7 @@ export default function Dashboard() {
         setNewAlertIds((s) => new Set(s).add(a.id))
         window.setTimeout(() => setNewAlertIds((s) => { const n = new Set(s); n.delete(a.id); return n }), 2000)
         const tier = a.tier ?? 'WARNING'
-        pushToast(`${tier} · ${a.severity} — ${a.zone_name}. ${a.title}`, tier === 'WARNING' ? '⚠ Warning raised' : 'Advisory issued')
+        pushToast(`${TIER_LABEL[tier] ?? tier} · ${a.severity} — ${a.zone_name}. ${a.title}`, tier === 'WARNING' ? 'Danger confirmed' : 'Be alert')
         if (tier === 'WARNING' && a.kind !== 'all_clear') {
           if (sound) { chime('warning'); notify(`WARNING — ${a.zone_name}`, a.title) }
           const f = zones?.features?.find((z: any) => z.properties.id === a.zone_id)
@@ -254,16 +266,61 @@ export default function Dashboard() {
 
   return (
     <div className="page">
+      {/* -------------------------------------------------- right now */}
+      <RightNow summary={summary} escalations={escalations} zones={zones} alerts={alerts}
+                onZone={selectZone} onReports={() => setRailTab('reports')} />
+
       {/* -------------------------------------------------- top strip */}
       <div className="top-strip">
         <Counter value={summary?.zones_at_risk ?? 0} label="Zones at risk (HIGH+)" tint={SEVERITY_FILL.HIGH} src="model on REAL weather" srcKind="real" />
-        <Counter value={summary?.open_reports ?? 0} label="Open reports" tint="var(--earth)" src="REAL · public" srcKind="real" />
-        <Counter value={summary?.alerts_24h ?? 0} label="Alerts · 24h" tint={SEVERITY_FILL.CRITICAL} src={`${summary?.advisories_active ?? 0} advisories active`} srcKind="sim" />
+        <Counter value={summary?.open_reports ?? 0} label="Reports waiting" tint="var(--earth-fill)" src="REAL · public" srcKind="real" />
+        <Counter value={summary?.alerts_24h ?? 0} label="Alerts · 24h" tint={SEVERITY_FILL.CRITICAL} src={`${summary?.advisories_active ?? 0} be-alert active`} srcKind="sim" />
         <Counter value={summary?.sensors_online ?? 0} label="Sensors online" tint="var(--brand)" src={hardwareLive.length ? `${hardwareLive.length} LIVE hardware` : 'SIMULATED'} srcKind={hardwareLive.length ? 'live' : 'sim'} />
+        {isAuthority && (
+          <div className="stat demo-menu">
+            <button className="btn ghost sm" onClick={() => setDemoOpen((o) => !o)} aria-expanded={demoOpen}>
+              Demo <IconChevron size={14} />
+            </button>
+            {demo.running && <span className="tiny muted">{demo.step}/{demo.total_steps} · {demo.label}</span>}
+            {demoOpen && (
+              <div className="menu" onMouseLeave={() => setDemoOpen(false)}>
+                <button disabled={demo.running || busy !== null} onClick={() => { setDemoOpen(false); run('Simulate', () => api.simulate(speed)) }}>
+                  {demo.running ? 'Storm running…' : 'Simulate monsoon event'}
+                </button>
+                <div className="menu-row">Speed
+                  <span className="seg">{([1, 4] as const).map((s) => <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)} disabled={demo.running}>{s}×</button>)}</span>
+                </div>
+                <button disabled={busy !== null}
+                        onClick={() => { setDemoOpen(false); run('Reset', async () => { await api.resetDemo(); await Promise.all([loadZones(), loadSummary(), loadInfra(), loadAlerts(), loadEsc()]) }, 'Demo reset to the seeded baseline.') }}>
+                  Reset demo
+                </button>
+                <button disabled={busy !== null}
+                        onClick={() => { setDemoOpen(false); run('Test alert', async () => {
+                          const r = await api.testAlert({ zone_id: selectedZoneId ?? undefined })
+                          const email = r.deliveries?.find((d: any) => d.channel === 'email')
+                          pushToast(`Test alert for ${r.zone}: email ${email?.status ?? 'n/a'}${email?.status === 'SIMULATED' ? ' (set SMTP_HOST in .env to send for real)' : ` → ${email?.recipient}`}`)
+                          await loadAlerts()
+                        }) }}>
+                  Send test alert
+                </button>
+                <button disabled={mode || !!tour} title="Fly over the demo districts once so map tiles are cached before judging"
+                        onClick={() => {
+                          setDemoOpen(false)
+                          const stops: View[] = (zones?.features ?? []).map((f: any) => ({ lat: f.properties.centroid[0], lon: f.properties.centroid[1], zoom: 10.5 }))
+                          pushToast(`Warming the map cache: ${stops.length} zones…`)
+                          setTour({ id: Date.now(), stops, onDone: () => { setTour(null); pushToast('Map cache warm.') } })
+                        }}>
+                  {tour ? 'Warming map cache…' : 'Warm map cache'}
+                </button>
+                {demo.running && <div className="demo-progress"><span style={{ width: `${((demo.step ?? 0) / (demo.total_steps || 8)) * 100}%` }} /></div>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* -------------------------------------------------- provenance */}
-      {weather && (
+      {/* -------------------------------------------------- provenance (only with "Show data sources") */}
+      {weather && sources && (
         <div className="provenance">
           <span className={`provbadge ${weather.using_real_weather ? 'real' : 'sim'}`}>{weather.using_real_weather ? 'REAL · Open-Meteo' : 'SIMULATED WEATHER'}</span>
           <span className="tiny">
@@ -276,37 +333,7 @@ export default function Dashboard() {
           <span style={{ flex: 1 }} />
           <span className="tiny muted nowrap">
             <span className="provbadge sim">SIMULATED</span> zone boundaries, {hardwareLive.length ? 'all but the LIVE sensor' : 'sensors'}, the demo storm.
-            {sources ? '' : ' Turn on "Show data sources" to label every number.'}
           </span>
-        </div>
-      )}
-
-      {/* -------------------------------------------------- demo bar */}
-      {isAuthority && (
-        <div className="demo-bar">
-          <button className="btn" disabled={demo.running || busy !== null} onClick={() => run('Simulate', () => api.simulate(speed))}>
-            {demo.running ? 'Running…' : 'Simulate Monsoon Event'}
-          </button>
-          <div className="seg">
-            {([1, 4] as const).map((s) => <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)} disabled={demo.running}>{s}×</button>)}
-          </div>
-          <button className="btn ghost" disabled={busy !== null}
-                  onClick={() => run('Reset', async () => { await api.resetDemo(); await Promise.all([loadZones(), loadSummary(), loadInfra(), loadAlerts(), loadEsc()]) }, 'Demo reset to the seeded baseline.')}>
-            Reset Demo
-          </button>
-          <button className="btn ghost" disabled={busy !== null}
-                  onClick={() => run('Test alert', async () => {
-                    const r = await api.testAlert({ zone_id: selectedZoneId ?? undefined })
-                    const email = r.deliveries?.find((d: any) => d.channel === 'email')
-                    pushToast(`Test alert for ${r.zone}: email ${email?.status ?? 'n/a'}${email?.status === 'SIMULATED' ? ' (set SMTP_HOST in .env to send for real)' : ` → ${email?.recipient}`}`)
-                    await loadAlerts()
-                  })}>
-            Send test alert
-          </button>
-          <div className="demo-progress" title={demo.label}>
-            <span style={{ width: `${((demo.step ?? 0) / (demo.total_steps || 8)) * 100}%`, background: 'var(--brand)' }} />
-          </div>
-          <div className="demo-step-label">{demo.step ? `${demo.step}/${demo.total_steps} · ${demo.label}` : demo.label}</div>
         </div>
       )}
 
@@ -327,14 +354,14 @@ export default function Dashboard() {
           <div className="rail-tabs">
             <button className={railTab === 'alerts' ? 'on' : ''} onClick={() => setRailTab('alerts')}>Alerts</button>
             <button className={railTab === 'reports' ? 'on' : ''} onClick={() => setRailTab('reports')}>
-              Escalations{escalations.length > 0 && <span className="count">{escalations.length}</span>}
+              Waiting for check{escalations.length > 0 && <span className="count">{escalations.length}</span>}
             </button>
           </div>
           <div className="rail-scroll">
             {railTab === 'alerts' && (
               <>
                 {sortedAlerts.length === 0 && (
-                  <div className="empty">No alerts yet.<br />{isAuthority ? 'Run “Simulate Monsoon Event”, or leave a citizen report unacknowledged.' : 'Alerts appear here as zones escalate.'}</div>
+                  <div className="empty">No alerts yet.<br />{isAuthority ? 'Run “Simulate monsoon event” from the Demo menu, or leave a citizen report unchecked.' : 'Alerts appear here as zones escalate.'}</div>
                 )}
                 {sortedAlerts.map((a) => (
                   <button key={a.id} className={`alert-item lv-${a.severity}${newAlertIds.has(a.id) ? ' is-new' : ''}`} onClick={() => selectZone(a.zone_id)}>
@@ -343,7 +370,7 @@ export default function Dashboard() {
                       <span className="tiny muted">{timeAgo(a.created_at)}</span>
                     </div>
                     <div className="alert-zone">{a.zone_name}</div>
-                    <div className="alert-meta">Risk {Math.round(a.risk_score)}/100 · confidence {Math.round(a.confidence * 100)}%{a.district ? ` · ${a.district}` : ''}</div>
+                    <div className="alert-meta">Risk {Math.round(a.risk_score)}/100 · {Math.round(a.confidence * 100)}% sure{a.district ? ` · ${a.district}` : ''}</div>
                     <div className="alert-factor">{a.kind && a.kind !== 'risk' ? a.title : a.contributing_factors?.[0]?.text}</div>
                     <DeliveryChips deliveries={a.deliveries ?? []} />
                   </button>
@@ -352,7 +379,7 @@ export default function Dashboard() {
             )}
             {railTab === 'reports' && (
               <>
-                {escalations.length === 0 && <div className="empty">No open citizen reports. Nothing is waiting on a human.</div>}
+                {escalations.length === 0 && <div className="empty">No reports waiting. Nothing needs a human right now.</div>}
                 {escalations.map((r) => (
                   <div key={r.id} className="esc-item">
                     <div className="esc-top">
@@ -366,7 +393,7 @@ export default function Dashboard() {
                     <ul className="esc-reasons">{(r.corroboration_reasons ?? []).slice(0, 2).map((x) => <li key={x.key}><b>{x.points > 0 ? '+' : ''}{x.points}</b>{x.text}</li>)}</ul>
                     {isAuthority && (
                       <div className="esc-actions">
-                        <button className="btn ghost sm" onClick={() => api.acknowledgeReport(r.id).then(loadEsc)}>✓ Seen</button>
+                        <button className="btn ghost sm" onClick={() => api.acknowledgeReport(r.id).then(loadEsc)}><IconCheck size={15} />I'm checking</button>
                         <button className="btn confirm sm" onClick={() => api.confirmReport(r.id).then(loadEsc)}>CONFIRM</button>
                         <button className="btn dismiss sm" onClick={() => api.dismissReport(r.id).then(loadEsc)}>DISMISS</button>
                         {r.lat && <button className="btn ghost sm" onClick={() => { setFlyTo({ lat: r.lat, lon: r.lon, zoom: 12 }); if (r.zone_id) setSelectedZoneId(r.zone_id) }}>Map</button>}
@@ -390,13 +417,13 @@ export default function Dashboard() {
                      villages={layers.villages ? infrastructure?.villages : null}
                      columns={columns} pins={pins} pulses={pulses}
                      selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark}
-                     basemap={satellite ? 'satellite' : 'map'} />
+                     basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} />
             </Suspense>
           )}
 
           <div className="map-mode">
             <div className="seg">
-              <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="MapLibre GL + AWS terrain tiles + deck.gl">3D terrain</button>
+              <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="OpenFreeMap vector tiles + AWS terrain + deck.gl">3D terrain</button>
               <button className={mode ? 'on' : ''} onClick={() => setMode(true)} title="Leaflet raster tiles — for slow networks and low-end phones">2D / low data</button>
             </div>
             {!mode && (
@@ -409,7 +436,7 @@ export default function Dashboard() {
 
           <div className={`map-panel tl${layersOpen ? '' : ' is-collapsed'}`}>
             <button className="map-panel-head as-button" type="button" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}>
-              <span className="label">Layers</span><span className="chevron">{layersOpen ? '−' : '+'}</span>
+              <span className="label">Layers</span><span className="chevron" style={{ transform: layersOpen ? 'rotate(180deg)' : 'none' }}><IconChevron size={14} /></span>
             </button>
             {layersOpen && (
               <div className="map-panel-body">
@@ -446,7 +473,7 @@ export default function Dashboard() {
 
           {frames.length > 0 && (
             <div className="rain-slider" title="Hourly rainfall per zone from Open-Meteo (ERA5 + forecast). Drag or play.">
-              <button className="play" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause' : 'Play'}>{playing ? '❚❚' : '▶'}</button>
+              <button className="play" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause' : 'Play'}>{playing ? <IconPause size={14} /> : <IconPlay size={14} />}</button>
               <input type="range" min={0} max={frames.length - 1} value={frameIdx ?? liveIdx}
                      onChange={(e) => { setPlaying(false); setFrameIdx(Number(e.target.value)) }} />
               <span className="t">{frame ? new Date(frame.ts).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit' }) : ''}{frame?.forecast ? ' · forecast' : ''}</span>
@@ -455,7 +482,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {zoneDetail && <ZoneDrawer detail={zoneDetail} weather={weather} provenance={provenance} onClose={closeDrawer} />}
+          {zoneDetail && <ZoneDrawer detail={zoneDetail} weather={weather} provenance={provenance} onClose={closeDrawer} more={drawerMore} setMore={setDrawerMore} />}
         </div>
       </div>
 
@@ -468,16 +495,53 @@ export default function Dashboard() {
   )
 }
 
+/* ------------------------------------------------------------------ right now */
+
+/** One sentence an officer can act on, and the button that takes them there. */
+function RightNow({ summary, escalations, zones, alerts, onZone, onReports }: {
+  summary: Summary | null; escalations: CitizenReport[]; zones: any; alerts: Alert[]
+  onZone: (id: number) => void; onReports: () => void
+}) {
+  const atRisk = (zones?.features ?? []).filter((f: any) => ['HIGH', 'CRITICAL'].includes(f.properties.severity))
+    .sort((x: any, y: any) => (y.properties.risk_score ?? 0) - (x.properties.risk_score ?? 0))
+  const waiting = escalations.length
+  const calm = atRisk.length === 0 && waiting === 0
+  const parts: string[] = []
+  if (atRisk.length) parts.push(`${atRisk.length} zone${atRisk.length > 1 ? 's' : ''} need${atRisk.length > 1 ? '' : 's'} attention`)
+  if (waiting) parts.push(`${waiting} report${waiting > 1 ? 's' : ''} waiting for check`)
+  const worst = atRisk[0]
+  const danger = alerts.find((a) => a.status === 'ACTIVE' && a.tier === 'WARNING' && a.kind !== 'all_clear')
+  // Most urgent: a confirmed danger, else the worst zone, else the oldest report.
+  const go = danger ? () => onZone(danger.zone_id) : worst ? () => onZone(worst.properties.id) : waiting ? onReports : null
+  const goLabel = danger ? `Open ${danger.zone_name}` : worst ? `Open ${worst.properties.name}` : waiting ? 'Open reports' : ''
+  if (!summary) return null
+  return (
+    <div className={`rightnow${calm ? ' calm' : ''}`} role="status">
+      {calm ? <IconCheck size={18} /> : <IconAlert size={18} />}
+      <span className="rightnow-text">{calm ? 'All zones calm · no reports waiting' : parts.join(' · ')}</span>
+      {go && <button className="btn sm" onClick={go}>{goLabel}</button>}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ drawer */
 
-function ZoneDrawer({ detail, weather, provenance, onClose }: {
+const WHAT_TO_DO: Record<Severity, string> = {
+  LOW: 'Nothing to do. Keep normal watch.',
+  MODERATE: 'Watch this zone. Tell road crews and village heads to stay alert.',
+  HIGH: 'Check the slope. Warn villages below it and restrict the exposed road if rain continues.',
+  CRITICAL: 'Act now: move people away from the slope, close the road, confirm the warning so sirens and SMS go out.',
+}
+
+function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore }: {
   detail: any; weather: WeatherStatus | null; provenance: ZoneProvenance | null; onClose: () => void
+  more: boolean; setMore: (v: boolean) => void
 }) {
   const r = detail.risk
   const t = detail.terrain
   const { sources } = useControl()
   const sensorsFailed = (detail.sensors ?? []).filter((s: any) => s.status !== 'ACTIVE')
-  const now = useNow(1000)
+  const sev = (r?.severity ?? 'LOW') as Severity
 
   return (
     <div className="drawer">
@@ -486,10 +550,10 @@ function ZoneDrawer({ detail, weather, provenance, onClose }: {
           <span className="label">{detail.code} · {detail.district}, {detail.state}</span>
           <button className="btn ghost sm" onClick={onClose}>Close</button>
         </div>
-        <h2 style={{ fontSize: 17, marginTop: 6 }}>{detail.name}</h2>
+        <h2 style={{ fontSize: 19, marginTop: 6 }}>{detail.name}</h2>
         <div style={{ marginTop: 8 }} className="row">
-          <SeverityChip value={(r?.severity ?? 'LOW') as Severity} size={18} />
-          {r?.computed_at && <span className="tiny muted">computed {timeAgo(r.computed_at)}</span>}
+          <SeverityChip value={sev} size={18} />
+          {r?.computed_at && <span className="tiny muted">updated {timeAgo(r.computed_at)}</span>}
         </div>
       </div>
 
@@ -498,116 +562,131 @@ function ZoneDrawer({ detail, weather, provenance, onClose }: {
           <>
             <div className="score-pair">
               <div className="score-cell"><div className="label">Risk score</div><div className="score-num">{Math.round(r.risk_score)}<small>/100</small></div></div>
-              <div className="score-cell"><div className="label">Confidence</div><div className="score-num">{Math.round(r.confidence * 100)}<small>%</small></div></div>
+              <div className="score-cell"><div className="label">How sure</div><div className="score-num">{Math.round(r.confidence * 100)}<small>%</small></div></div>
             </div>
             <div className="drawer-section">
-              <span className="label">Why this score</span>
-              <FactorList factors={r.contributing_factors ?? []} />
-              <p className="notice tiny" style={{ marginTop: 12 }}>Decision support, not a guaranteed prediction. Model {r.model_version} — trained on real NASA GLC events; terrain inputs for this zone are simulated.</p>
+              <span className="label">Why</span>
+              <FactorList factors={r.contributing_factors ?? []} limit={3} />
             </div>
             <div className="drawer-section">
-              <span className="label">Rainfall &amp; soil moisture — last 72 h {weather?.using_real_weather && <Src kind="real" label="REAL · Open-Meteo" />}</span>
-              <Sparkline data={detail.sparkline ?? []} />
-              <dl className="kv" style={{ marginTop: 10 }}>
-                <dt>24h rainfall</dt><dd>{r.rainfall_24h?.toFixed(0)} mm</dd>
-                <dt>72h rainfall</dt><dd>{r.rainfall_72h?.toFixed(0)} mm</dd>
-                <dt>15-day antecedent</dt><dd>{r.antecedent_rain_15d?.toFixed(0)} mm</dd>
-                <dt>Soil moisture</dt><dd>{r.soil_moisture_pct?.toFixed(0)} %</dd>
-                <dt>24h outlook</dt><dd>{r.forecast_24h_mm?.toFixed(0)} mm <span className="tiny muted">(forecast)</span></dd>
-              </dl>
+              <span className="label">What to do</span>
+              <p className={`todo sev-${sev}`}>{WHAT_TO_DO[sev]}</p>
+              <p className="tiny muted" style={{ margin: '8px 0 0' }}>Decision support, not a guaranteed prediction. Model {r.model_version}.</p>
             </div>
           </>
         ) : <div className="empty">No risk computed for this zone yet.</div>}
 
-        {provenance && (
-          <div className="drawer-section">
-            <span className="label">Weather provenance <Src kind="real" /></span>
-            {provenance.sources.map((s) => (
-              <div key={s.endpoint} style={{ marginTop: 8, fontSize: 12.5 }}>
-                <div><strong>{s.role}</strong></div>
-                <div className="tiny muted">{s.model}</div>
-                <div className="mono tiny">{s.endpoint}</div>
-                {s.grid && <div className="tiny">grid cell <span className="mono">{s.grid.lat.toFixed(3)}, {s.grid.lon.toFixed(3)}</span>{s.grid.elevation_m != null && <> · {Math.round(s.grid.elevation_m)} m</>} · fetched {timeAgo(s.grid.fetched_at)}</div>}
+        <button className="more-toggle" onClick={() => setMore(!more)} aria-expanded={more}>
+          <span className="label">More details</span><span style={{ transform: more ? 'rotate(180deg)' : 'none', display: 'inline-flex' }}><IconChevron size={16} /></span>
+        </button>
+
+        {more && (
+          <>
+            {r && (
+              <div className="drawer-section">
+                <span className="label">Rainfall &amp; soil moisture — last 72 h {weather?.using_real_weather && <Src kind="real" label="REAL · Open-Meteo" />}</span>
+                <Sparkline data={detail.sparkline ?? []} />
+                <dl className="kv" style={{ marginTop: 10 }}>
+                  <dt>24h rainfall</dt><dd>{r.rainfall_24h?.toFixed(0)} mm</dd>
+                  <dt>72h rainfall</dt><dd>{r.rainfall_72h?.toFixed(0)} mm</dd>
+                  <dt>15-day antecedent</dt><dd>{r.antecedent_rain_15d?.toFixed(0)} mm</dd>
+                  <dt>Soil moisture</dt><dd>{r.soil_moisture_pct?.toFixed(0)} %</dd>
+                  <dt>24h outlook</dt><dd>{r.forecast_24h_mm?.toFixed(0)} mm <span className="tiny muted">(forecast)</span></dd>
+                </dl>
+                {(r.contributing_factors ?? []).length > 3 && <><span className="label" style={{ display: 'block', marginTop: 12 }}>All reasons</span><FactorList factors={r.contributing_factors} /></>}
               </div>
-            ))}
-            <div className="tiny" style={{ marginTop: 8 }}>Requested point <span className="mono">{provenance.requested_point.lat.toFixed(4)}, {provenance.requested_point.lon.toFixed(4)}</span></div>
-            <div className="row" style={{ marginTop: 8, gap: 8 }}>
-              <a className="btn ghost sm" href={provenance.verify_live.forecast} target="_blank" rel="noreferrer">Verify live: forecast ↗</a>
-              <a className="btn ghost sm" href={provenance.verify_live.archive} target="_blank" rel="noreferrer">Verify live: ERA5 archive ↗</a>
+            )}
+
+            {provenance && (
+              <div className="drawer-section">
+                <span className="label">Where this data comes from <Src kind="real" /></span>
+                {provenance.sources.map((s) => (
+                  <div key={s.endpoint} style={{ marginTop: 8, fontSize: 12.5 }}>
+                    <div><strong>{s.role}</strong></div>
+                    <div className="tiny muted">{s.model}</div>
+                    <div className="mono tiny">{s.endpoint}</div>
+                    {s.grid && <div className="tiny">grid cell <span className="mono">{s.grid.lat.toFixed(3)}, {s.grid.lon.toFixed(3)}</span>{s.grid.elevation_m != null && <> · {Math.round(s.grid.elevation_m)} m</>} · fetched {timeAgo(s.grid.fetched_at)}</div>}
+                  </div>
+                ))}
+                <div className="tiny" style={{ marginTop: 8 }}>Requested point <span className="mono">{provenance.requested_point.lat.toFixed(4)}, {provenance.requested_point.lon.toFixed(4)}</span></div>
+                <div className="row" style={{ marginTop: 8, gap: 8 }}>
+                  <a className="btn ghost sm" href={provenance.verify_live.forecast} target="_blank" rel="noreferrer">Verify live: forecast <IconExternal size={13} /></a>
+                  <a className="btn ghost sm" href={provenance.verify_live.archive} target="_blank" rel="noreferrer">Verify live: ERA5 archive <IconExternal size={13} /></a>
+                </div>
+                <p className="tiny muted" style={{ marginTop: 8 }}>{provenance.attribution}</p>
+              </div>
+            )}
+
+            <div className="drawer-section">
+              <span className="label">Terrain {sources && <Src kind="sim" />}</span>
+              <dl className="kv" style={{ marginTop: 8 }}>
+                <dt>Slope</dt><dd>{t.slope_deg}°</dd><dt>Aspect</dt><dd>{t.aspect_deg}°</dd><dt>Elevation</dt><dd>{t.elevation_m} m</dd>
+                <dt>Lithology</dt><dd>{t.lithology.replace(/_/g, ' ')}</dd><dt>Land cover</dt><dd>{t.land_cover.replace(/_/g, ' ')}</dd>
+                <dt>Area</dt><dd>{t.area_km2} km²</dd><dt>Population</dt><dd>{t.population?.toLocaleString()}</dd>
+              </dl>
             </div>
-            <p className="tiny muted" style={{ marginTop: 8 }}>{provenance.attribution}</p>
-          </div>
+
+            <div className="drawer-section">
+              <span className="label">Roads crossing this zone ({detail.roads?.length ?? 0}) {sources && <Src kind="sim" />}</span>
+              {(detail.roads ?? []).length === 0 && <p className="muted tiny">None.</p>}
+              {(detail.roads ?? []).map((road: any) => (
+                <div key={road.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>{road.name}<span className="tiny muted"> · {road.exposed_km} km exposed</span></span>
+                  <span className={`pill${road.status !== 'OPEN' ? ' on' : ''}`}>{road.status}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="drawer-section">
+              <span className="label">Settlements ({detail.villages?.length ?? 0}) {sources && <Src kind="sim" />}</span>
+              {(detail.villages ?? []).map((v: any) => (
+                <div key={v.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                  <span>{v.name} <span className="tiny muted">· pop {v.population.toLocaleString()}</span></span>
+                  {v.is_cut_off && <span className="pill on">CUT OFF</span>}
+                </div>
+              ))}
+            </div>
+
+            <div className="drawer-section">
+              <span className="label">Sensor nodes ({detail.sensors?.length ?? 0})</span>
+              {(detail.sensors ?? []).map((s: any) => (
+                <div key={s.node_id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                  <span className="mono">{s.live && <span className="live-dot" />}{s.node_id}</span>
+                  <span className="row" style={{ gap: 8 }}>
+                    {sources && <Src kind={s.source === 'hardware' ? 'live' : 'sim'} label={s.source === 'hardware' ? 'REAL · hardware' : 'SIMULATED'} />}
+                    <span className="tiny muted">{s.last_seen ? `${s.seconds_since_seen != null && s.seconds_since_seen < 120 ? `${s.seconds_since_seen}s ago` : timeAgo(s.last_seen)}` : 'no telemetry'}</span>
+                    <span className={`pill${s.status !== 'ACTIVE' ? ' on' : ''}`}>{s.status}</span>
+                  </span>
+                </div>
+              ))}
+              {sensorsFailed.length > 0 && <p className="notice tiny" style={{ marginTop: 10 }}>{sensorsFailed.length} node(s) not reporting — confidence reduced, and listed in the reasons above.</p>}
+            </div>
+
+            <div className="drawer-section">
+              <span className="label">Citizen reports ({detail.citizen_reports?.length ?? 0}) <Src kind="real" label="REAL · public" /></span>
+              {(detail.citizen_reports ?? []).length === 0 && <p className="muted tiny">None.</p>}
+              {(detail.citizen_reports ?? []).map((c: any) => (
+                <div key={c.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <strong style={{ fontSize: 13 }}>{c.issue_type.replace(/_/g, ' ')}</strong><span className="pill">{c.status}</span>
+                  </div>
+                  <div className="tiny muted">{fmtTime(c.created_at)} · {c.geo_valid ? 'inside zone' : 'outside monitored zones'}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="drawer-section">
+              <span className="label">Field verifications ({detail.field_reports?.length ?? 0})</span>
+              {(detail.field_reports ?? []).length === 0 && <p className="muted tiny">No officer has reported from this zone.</p>}
+              {(detail.field_reports ?? []).map((f: any) => (
+                <div key={f.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 13 }}>{f.verdict}</strong><span className="tiny muted">{fmtTime(f.observed_at)}</span></div>
+                  <div className="tiny muted">{f.officer_name}{f.submitted_offline ? ' · submitted offline, synced later' : ''}</div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
-
-        <div className="drawer-section">
-          <span className="label">Terrain {sources && <Src kind="sim" />}</span>
-          <dl className="kv" style={{ marginTop: 8 }}>
-            <dt>Slope</dt><dd>{t.slope_deg}°</dd><dt>Aspect</dt><dd>{t.aspect_deg}°</dd><dt>Elevation</dt><dd>{t.elevation_m} m</dd>
-            <dt>Lithology</dt><dd>{t.lithology.replace(/_/g, ' ')}</dd><dt>Land cover</dt><dd>{t.land_cover.replace(/_/g, ' ')}</dd>
-            <dt>Area</dt><dd>{t.area_km2} km²</dd><dt>Population</dt><dd>{t.population?.toLocaleString()}</dd>
-          </dl>
-        </div>
-
-        <div className="drawer-section">
-          <span className="label">Roads crossing this zone ({detail.roads?.length ?? 0}) {sources && <Src kind="sim" />}</span>
-          {(detail.roads ?? []).length === 0 && <p className="muted tiny">None.</p>}
-          {(detail.roads ?? []).map((road: any) => (
-            <div key={road.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
-              <span style={{ flex: '1 1 auto', minWidth: 0 }}>{road.name}<span className="tiny muted"> · {road.exposed_km} km exposed</span></span>
-              <span className={`pill${road.status !== 'OPEN' ? ' on' : ''}`}>{road.status}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="drawer-section">
-          <span className="label">Settlements ({detail.villages?.length ?? 0}) {sources && <Src kind="sim" />}</span>
-          {(detail.villages ?? []).map((v: any) => (
-            <div key={v.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
-              <span>{v.name} <span className="tiny muted">· pop {v.population.toLocaleString()}</span></span>
-              {v.is_cut_off && <span className="pill on">CUT OFF</span>}
-            </div>
-          ))}
-        </div>
-
-        <div className="drawer-section">
-          <span className="label">Sensor nodes ({detail.sensors?.length ?? 0})</span>
-          {(detail.sensors ?? []).map((s: any) => (
-            <div key={s.node_id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
-              <span className="mono">{s.live && <span className="live-dot" />}{s.node_id}</span>
-              <span className="row" style={{ gap: 8 }}>
-                {sources && <Src kind={s.source === 'hardware' ? 'live' : 'sim'} label={s.source === 'hardware' ? 'REAL · hardware' : 'SIMULATED'} />}
-                <span className="tiny muted">{s.last_seen ? `${s.seconds_since_seen != null && s.seconds_since_seen < 120 ? `${s.seconds_since_seen}s ago` : timeAgo(s.last_seen)}` : 'no telemetry'}</span>
-                <span className={`pill${s.status !== 'ACTIVE' ? ' on' : ''}`}>{s.status}</span>
-              </span>
-            </div>
-          ))}
-          {sensorsFailed.length > 0 && <p className="notice tiny" style={{ marginTop: 10 }}>{sensorsFailed.length} node(s) not reporting — confidence reduced, and listed in the factors above.</p>}
-        </div>
-
-        <div className="drawer-section">
-          <span className="label">Citizen reports ({detail.citizen_reports?.length ?? 0}) <Src kind="real" label="REAL · public" /></span>
-          {(detail.citizen_reports ?? []).length === 0 && <p className="muted tiny">None.</p>}
-          {(detail.citizen_reports ?? []).map((c: any) => (
-            <div key={c.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <strong style={{ fontSize: 13 }}>{c.issue_type.replace(/_/g, ' ')}</strong><span className="pill">{c.status}</span>
-              </div>
-              <div className="tiny muted">{fmtTime(c.created_at)} · {c.geo_valid ? 'inside zone' : 'outside monitored zones'}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="drawer-section">
-          <span className="label">Field verifications ({detail.field_reports?.length ?? 0})</span>
-          {(detail.field_reports ?? []).length === 0 && <p className="muted tiny">No officer has reported from this zone.</p>}
-          {(detail.field_reports ?? []).map((f: any) => (
-            <div key={f.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
-              <div className="row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 13 }}>{f.verdict}</strong><span className="tiny muted">{fmtTime(f.observed_at)}</span></div>
-              <div className="tiny muted">{f.officer_name}{f.submitted_offline ? ' · submitted offline, synced later' : ''}</div>
-            </div>
-          ))}
-        </div>
-        <p className="tiny muted" style={{ marginTop: 8 }}>Countdown clock: {new Date(now).toLocaleTimeString()}</p>
       </div>
     </div>
   )

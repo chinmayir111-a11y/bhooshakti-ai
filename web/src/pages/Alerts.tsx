@@ -1,3 +1,4 @@
+import { TIER_SHORT } from '../components/Severity'
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, getUser, type Alert } from '../api/client'
@@ -22,16 +23,16 @@ export default function Alerts() {
   return (
     <div className="page">
       <PageTitle title="Alerts"
-                 subtitle="Every ADVISORY and WARNING raised, with the channel it went out on and its delivery status.">
+                 subtitle="Every notice raised — Be alert (unconfirmed) and Danger (confirmed) — with the channel it went out on and its delivery status.">
         <DemoBadge dark />
       </PageTitle>
       <div className="page-body">
         <div className="page-narrow stack">
           <div className="row">
-            <span className="label">Tier</span>
+            <span className="label">Kind</span>
             <div className="seg">
               {['ALL', 'WARNING', 'ADVISORY'].map((s) => (
-                <button key={s} className={tier === s ? 'on' : ''} onClick={() => setTier(s)}>{s}</button>
+                <button key={s} className={tier === s ? 'on' : ''} onClick={() => setTier(s)}>{s === 'ALL' ? 'All' : TIER_SHORT[s]}</button>
               ))}
             </div>
             <span className="label">Severity</span>
@@ -47,7 +48,7 @@ export default function Alerts() {
             <table className="grid">
               <thead>
                 <tr>
-                  <th>Tier</th><th>Severity</th><th>Zone</th><th>Risk</th><th>Confidence</th>
+                  <th>Kind</th><th>Severity</th><th>Zone</th><th>Risk</th><th>How sure</th>
                   <th>Raised</th><th>Source</th><th>Delivery</th>
                 </tr>
               </thead>
@@ -98,7 +99,7 @@ export default function Alerts() {
                                onClick={(e) => e.stopPropagation()}>CAP 1.2 XML</a>
                             {isAuthority && !a.acknowledged && (
                               <button className="btn sm" onClick={(e) => { e.stopPropagation(); api.acknowledge(a.id).then(load) }}>
-                                Acknowledge
+                                I'm checking
                               </button>
                             )}
                           </div>
@@ -112,8 +113,8 @@ export default function Alerts() {
           </div>
 
           <p className="notice">
-            <strong>ADVISORY</strong> is issued by the machine from unverified evidence and says so in its wording.
-            <strong> WARNING</strong> needs a human confirmation or a model CRITICAL, and also sounds the siren relay.
+            <strong>Be alert (unconfirmed)</strong> is issued by the system from unverified evidence and says so in its wording.
+            <strong> Danger (confirmed)</strong> needs an officer's confirmation or a model CRITICAL, and also sounds the siren relay.
             Channels marked <em>simulated</em> run on stub gateways; email turns real once SMTP is set in <span className="mono">.env</span>.
             The same alerts are published as CAP 1.2 at <span className="mono">/api/cap/alerts.xml</span>.
           </p>

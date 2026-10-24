@@ -4,6 +4,7 @@ import { useControl } from '../control/context'
 import { SeverityChip } from './Severity'
 
 export { SEVERITY_FILL, SEVERITY_ORDER, SeverityChip, TierChip } from './Severity'
+import { IconBell, IconBellOff, IconMoon, IconSun } from './Pictograms'
 
 export function DemoBadge({ dark = false }: { dark?: boolean }) {
   return (
@@ -53,11 +54,13 @@ export function AppHeader() {
       </nav>
       <div className="hdr-controls">
         <button className={`hdr-toggle${sources ? ' on' : ''}`} onClick={() => setSources(!sources)}
-                title="Label every number with where it comes from">Show data sources</button>
+                title="Label every number with where it comes from (REAL / SIMULATED)">Show data sources</button>
         <button className={`hdr-toggle${sound ? ' on' : ''}`} onClick={toggleSound}
-                title="Chime and browser notification on a new WARNING">{sound ? '🔔 Sound on' : '🔕 Sound off'}</button>
-        <button className={`hdr-toggle${dark ? ' on' : ''}`} onClick={() => setDark(!dark)} title="Dark mode">
-          {dark ? '☀' : '☾'}
+                title="Chime and browser notification on a confirmed danger" aria-label={sound ? 'Sound on' : 'Sound off'}>
+          {sound ? <IconBell size={15} /> : <IconBellOff size={15} />} {sound ? 'Sound on' : 'Sound off'}
+        </button>
+        <button className={`hdr-toggle${dark ? ' on' : ''}`} onClick={() => setDark(!dark)} title="Dark mode" aria-label="Dark mode">
+          {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
         </button>
       </div>
       {user ? (

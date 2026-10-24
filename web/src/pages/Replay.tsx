@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import { api, type ReplayEvent, type ReplayTimeline } from '../api/client'
 import { SEVERITY_FILL, SeverityChip } from '../components/Severity'
 import { prefersReducedMotion, useLocalFlag } from '../hooks'
+import { IconAlert, IconCheck, IconExternal, IconPause, IconPlay } from '../components/Pictograms'
 import type { Column, Pulse } from '../components/Map3D'
 import '../styles/theme.css'
 
@@ -67,10 +68,16 @@ export default function Replay() {
   const [custom, setCustom] = useState({ pincode: '734223', lat: '', lon: '', date: '2024-05-28', time: '', label: '' })
   const [customBusy, setCustomBusy] = useState(false)
   const [customError, setCustomError] = useState('')
+  const [customOpen, setCustomOpen] = useState(false)
   const shock = useRef<Pulse[]>([])
 
   useEffect(() => {
-    api.replayEvents().then((e) => { setEvents(e); if (e[0]) setSelected(e[0].id) }).catch(() => setError('The API is not reachable.'))
+    api.replayEvents().then((e) => {
+      setEvents(e)
+      // Open on Aizawl, 28 May 2024 — a real slide the system warned about 3.5 h ahead.
+      const first = e.find((x) => x.source_event_id === 'aizawl-melthum-2024') ?? e.find((x) => x.outcome === 'warned_before') ?? e[0]
+      if (first) setSelected(first.id)
+    }).catch(() => setError('The API is not reachable.'))
     api.replaySummary().then(setSummary).catch(() => {})
   }, [])
 
@@ -158,75 +165,58 @@ export default function Replay() {
       </header>
       <div className="page-body">
         <div className="page-narrow stack">
-          <div className="row" style={{ gap: 14 }}>
-            <div>
-              <h1 style={{ fontSize: 20 }}>Would we have warned?</h1>
-              <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
-                Each event below is a <strong>real recorded landslide</strong> the model never saw in training, replayed hour by hour
-                through the live risk pipeline on real ERA5 weather. <span className="provbadge real">REAL · NASA GLC</span> <span className="provbadge real">REAL · ERA5 / Open-Meteo</span>
-              </p>
-            </div>
-          </div>
-
-          {summary && (
-            <div className="card lift">
-              <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, alignItems: 'start' }}>
-                <div style={{ gridColumn: '1 / -1', fontSize: 16, fontWeight: 700 }}>{summary.summary.headline}</div>
-                <Stat n={summary.summary.warned_before} of={summary.summary.events} label="warned before" tint="var(--sev-low-ink)" />
-                <Stat n={summary.summary.warned_same_day} of={summary.summary.events} label="same day only" tint="var(--sev-high-ink)" />
-                <Stat n={summary.summary.missed} of={summary.summary.events} label="missed" tint="var(--sev-critical-ink)" />
-                <Stat n={summary.summary.median_lead_hours ?? 0} label="median lead, hours" tint="var(--brand-ink)" />
-                <Stat n={summary.summary.non_event_false_alarms} of={summary.summary.non_event_windows} label="false alarms, same-season non-event windows" tint="var(--earth)" />
-                <Stat n={summary.summary.dry_false_alarms} of={summary.summary.dry_windows} label="false alarms, dry-season windows" tint="var(--earth)" />
-                <p className="tiny muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
-                  Held out: every event from {summary.test_year} on, plus the curated 2022/2024 records. Alert = risk ≥ {summary.threshold} (HIGH).
-                  Reference = recorded time, else the start of the event day. Forecast input is a statistical nowcast only — no future data.
-                  Model {summary.model_version}, run {fmt(summary.generated_at, { day: '2-digit', month: 'short', year: 'numeric' })}. Counts, not an accuracy claim.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <div className="card lift">
-            <div className="card-head"><h3>Test your own place and date</h3><span className="tiny muted">any pincode or point, any day since 1950 — real ERA5 weather is fetched for the 30 days before it</span></div>
-            <form className="card-body row" style={{ gap: 10, alignItems: 'flex-end' }} onSubmit={runCustom}>
-              <div style={{ flex: '0 1 130px' }}><label className="label" htmlFor="cpin">Pincode</label>
-                <input id="cpin" inputMode="numeric" maxLength={6} value={custom.pincode} onChange={(e) => setCustom({ ...custom, pincode: e.target.value.replace(/\D/g, ''), lat: '', lon: '' })} placeholder="734223" /></div>
-              <span className="tiny muted" style={{ paddingBottom: 10 }}>or</span>
-              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clat">Latitude</label>
-                <input id="clat" inputMode="decimal" value={custom.lat} onChange={(e) => setCustom({ ...custom, lat: e.target.value })} placeholder="24.782" /></div>
-              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clon">Longitude</label>
-                <input id="clon" inputMode="decimal" value={custom.lon} onChange={(e) => setCustom({ ...custom, lon: e.target.value })} placeholder="93.663" /></div>
-              <div style={{ flex: '0 1 170px' }}><label className="label" htmlFor="cdate">Date to test</label>
-                <input id="cdate" type="date" value={custom.date} onChange={(e) => setCustom({ ...custom, date: e.target.value })} /></div>
-              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="ctime">Time IST (optional)</label>
-                <input id="ctime" type="time" value={custom.time} onChange={(e) => setCustom({ ...custom, time: e.target.value })} /></div>
-              <div style={{ flex: '1 1 160px' }}><label className="label" htmlFor="clabel">Label (optional)</label>
-                <input id="clabel" value={custom.label} onChange={(e) => setCustom({ ...custom, label: e.target.value })} placeholder="e.g. Kurseong slide I remember" /></div>
-              <button className="btn" type="submit" disabled={customBusy}>{customBusy ? 'Fetching ERA5…' : 'Replay it'}</button>
-              {customError && <p className="notice tiny" style={{ flex: '1 1 100%', margin: 0 }}>{customError}</p>}
-            </form>
+          <div>
+            <h1 style={{ fontSize: 22 }}>Would we have warned?</h1>
+            <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+              Pick a <strong>real recorded landslide</strong> the model never saw in training and press Play: the real weather of
+              the month before it runs hour by hour through the live risk pipeline.
+            </p>
           </div>
 
           <div className="card">
-            <div className="card-head" style={{ flexWrap: 'wrap' }}>
-              <label className="label" htmlFor="ev">Event</label>
-              <select id="ev" value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))} style={{ maxWidth: 520, flex: '1 1 260px' }}>
-                {selected == null && <option value="">— your own place and date —</option>}
+            <div className="card-head replay-bar">
+              <label className="label" htmlFor="ev">Landslide</label>
+              <select id="ev" value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))}>
+                {selected == null && <option value="">Your own place and date</option>}
                 {events.map((e) => (
                   <option key={e.id} value={e.id}>
-                    {e.demo ? '★ ' : ''}{e.date} · {e.state} · {e.title.slice(0, 60)} — {e.outcome === 'warned_before' ? `warned ${e.lead_hours} h ahead` : e.outcome === 'same_day' ? 'same day' : e.outcome === 'missed' ? 'missed' : '—'}
+                    {e.date} · {e.state} · {e.title.slice(0, 60)} — {e.outcome === 'warned_before' ? `warned ${e.lead_hours} h ahead` : e.outcome === 'same_day' ? 'same day' : e.outcome === 'missed' ? 'missed' : '—'}
                   </option>
                 ))}
               </select>
+              <button className="btn big" onClick={() => { if (tl && idx + 1 >= tl.hours.length) setIdx(0); setPlaying((p) => !p) }} disabled={!tl}>
+                {playing ? <><IconPause size={18} /> Pause</> : <><IconPlay size={18} /> Play</>}
+              </button>
+              <button className="btn ghost sm" onClick={() => setCustomOpen((o) => !o)} aria-expanded={customOpen}>Try any place and date</button>
+              <span style={{ flex: '1 1 auto' }} />
               <div className="seg">
                 <button className={window_ === 'event' ? 'on' : ''} onClick={() => setWindow('event')}>Event week</button>
                 <button className={window_ === 'dry' ? 'on' : ''} onClick={() => setWindow('dry')}>Dry week</button>
               </div>
-              <button className="btn sm" onClick={() => { if (tl && idx + 1 >= tl.hours.length) setIdx(0); setPlaying((p) => !p) }} disabled={!tl}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
               <div className="seg">{SPEEDS.map((s) => <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>)}</div>
-              <label className="toggle-row" style={{ padding: 0 }}><input type="checkbox" checked={show3d} onChange={(e) => setShow3d(e.target.checked)} /> 3D terrain</label>
+              <label className="toggle-row" style={{ padding: 0 }}><input type="checkbox" checked={show3d} onChange={(e) => setShow3d(e.target.checked)} /> 3D</label>
             </div>
+
+            {customOpen && (
+              <form className="card-body row" style={{ gap: 10, alignItems: 'flex-end', borderBottom: '1px solid var(--line)', background: 'var(--surface-2)' }} onSubmit={runCustom}>
+                <p className="tiny muted" style={{ flex: '1 1 100%', margin: 0 }}>Any pincode or point in the hills, any day since 1950. Real ERA5 weather for the 30 days before it is fetched and replayed; the first run for a new place takes 20–40 s.</p>
+                <div style={{ flex: '0 1 130px' }}><label className="label" htmlFor="cpin">Pincode</label>
+                  <input id="cpin" inputMode="numeric" maxLength={6} value={custom.pincode} onChange={(e) => setCustom({ ...custom, pincode: e.target.value.replace(/\D/g, ''), lat: '', lon: '' })} placeholder="734223" /></div>
+                <span className="tiny muted" style={{ paddingBottom: 10 }}>or</span>
+                <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clat">Latitude</label>
+                  <input id="clat" inputMode="decimal" value={custom.lat} onChange={(e) => setCustom({ ...custom, lat: e.target.value })} placeholder="24.782" /></div>
+                <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clon">Longitude</label>
+                  <input id="clon" inputMode="decimal" value={custom.lon} onChange={(e) => setCustom({ ...custom, lon: e.target.value })} placeholder="93.663" /></div>
+                <div style={{ flex: '0 1 170px' }}><label className="label" htmlFor="cdate">Date to test</label>
+                  <input id="cdate" type="date" value={custom.date} onChange={(e) => setCustom({ ...custom, date: e.target.value })} /></div>
+                <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="ctime">Time IST (optional)</label>
+                  <input id="ctime" type="time" value={custom.time} onChange={(e) => setCustom({ ...custom, time: e.target.value })} /></div>
+                <div style={{ flex: '1 1 160px' }}><label className="label" htmlFor="clabel">Label (optional)</label>
+                  <input id="clabel" value={custom.label} onChange={(e) => setCustom({ ...custom, label: e.target.value })} placeholder="e.g. Kurseong slide I remember" /></div>
+                <button className="btn" type="submit" disabled={customBusy}>{customBusy ? 'Fetching ERA5…' : 'Replay it'}</button>
+                {customError && <p className="notice tiny" style={{ flex: '1 1 100%', margin: 0 }}>{customError}</p>}
+              </form>
+            )}
 
             {error && <p className="notice" style={{ margin: 16 }}>{error}</p>}
             {!tl && !error && <div className="card-body"><div className="skeleton" style={{ height: 220 }} /></div>}
@@ -243,8 +233,6 @@ export default function Replay() {
                                  basemap={satellite ? 'satellite' : 'map'} />
                         </Suspense>
                         <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5 }} className="row">
-                          <span className="provbadge real">REAL · AWS terrain</span>
-                          <span className="provbadge real">column = 24 h rain, ERA5</span>
                           <span className="seg" style={{ background: 'var(--surface)' }}>
                             <button className={!satellite ? 'on' : ''} onClick={() => setSatellite(false)}>Map</button>
                             <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)}>Satellite</button>
@@ -269,20 +257,41 @@ export default function Replay() {
                   <div>
                     <input type="range" min={0} max={tl.hours.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)) }} style={{ width: '100%', accentColor: 'var(--brand)' }} aria-label="Timeline" />
                     <Chart tl={tl} idx={idx} />
-                    {banner && <div className={`replay-banner ${banner.cls}`}>{banner.cls === 'event' || banner.cls === 'miss' ? '⛰' : banner.cls === 'ok' ? '✓' : '⚠'} {banner.text}</div>}
+                    {banner && <div className={`replay-banner ${banner.cls}`}>{banner.cls === 'ok' ? <IconCheck size={18} /> : <IconAlert size={18} />} {banner.text}</div>}
                     <div className="notice tiny" style={{ marginTop: 12 }}>
                       <strong>{ev.title}</strong><br />
                       {ev.date}{ev.time_known ? '' : ' (date only; time not recorded)'} · {ev.state} · trigger: {ev.trigger || '—'}{ev.fatalities ? ` · ${ev.fatalities} fatalities` : ''}
                       {ev.location_accuracy && <> · location ±{ev.location_accuracy}</>}<br />
                       <span className="provbadge real">REAL · {ev.source}</span>{' '}
-                      {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer" className="verify-link">source record ↗</a>}
-                      <br /><span className="muted">Weather: {tl.provenance.weather}, grid cell {tl.provenance.grid.lat?.toFixed?.(2)}, {tl.provenance.grid.lon?.toFixed?.(2)}. {tl.provenance.forecast_input}.</span>
+                      {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer" className="verify-link">source record <IconExternal size={12} /></a>}
+                      <br /><span className="muted">Weather: {tl.provenance.weather}, grid cell {tl.provenance.grid.lat?.toFixed?.(2)}, {tl.provenance.grid.lon?.toFixed?.(2)}. {tl.provenance.forecast_input}. Map: AWS terrain; the column is 24 h rain.</span>
                     </div>
                   </div>
                 </div>
               </div>
             )}
           </div>
+
+          {summary && (
+            <div className="card">
+              <div className="card-head"><h3>The honest score on every held-out landslide</h3></div>
+              <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, alignItems: 'start' }}>
+                <div style={{ gridColumn: '1 / -1', fontSize: 16, fontWeight: 700 }}>{summary.summary.headline}</div>
+                <Stat n={summary.summary.warned_before} of={summary.summary.events} label="warned before" tint="var(--sev-low-ink)" />
+                <Stat n={summary.summary.warned_same_day} of={summary.summary.events} label="same day only" tint="var(--sev-high-ink)" />
+                <Stat n={summary.summary.missed} of={summary.summary.events} label="missed" tint="var(--sev-critical-ink)" />
+                <Stat n={summary.summary.median_lead_hours ?? 0} label="median lead, hours" tint="var(--brand-ink)" />
+                <Stat n={summary.summary.non_event_false_alarms} of={summary.summary.non_event_windows} label="false alarms, same-season non-event windows" tint="var(--earth)" />
+                <Stat n={summary.summary.dry_false_alarms} of={summary.summary.dry_windows} label="false alarms, dry-season windows" tint="var(--earth)" />
+                <p className="tiny muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                  Held out: every event from {summary.test_year} on, plus the curated 2022/2024 records. Alert = risk at or above {summary.threshold} (HIGH).
+                  Reference = recorded time, else the start of the event day. Forecast input is a statistical nowcast only — no future data.
+                  Model {summary.model_version}, run {fmt(summary.generated_at, { day: '2-digit', month: 'short', year: 'numeric' })}. Counts, not an accuracy claim.
+                  <span className="provbadge real" style={{ marginLeft: 6 }}>REAL · NASA GLC</span> <span className="provbadge real">REAL · ERA5 / Open-Meteo</span>
+                </p>
+              </div>
+            </div>
+          )}
 
           {summary?.demo_events?.length > 0 && (
             <div className="card">
