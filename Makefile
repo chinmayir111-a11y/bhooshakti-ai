@@ -43,7 +43,7 @@ DB_NAME := bhooshakti
 DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
-.PHONY: help doctor setup venv services db seed weather train api web mobile \
+.PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
         sensors test test-backend test-mobile reset clean import-landslides backtest \
         train-synthetic demo-live-sensor calibrate test-email
 
@@ -177,6 +177,9 @@ sensors: ## Run the simulated sensor network (NOT during the scripted demo)
 
 demo-live-sensor: ## Keyboard-driven FAKE hardware node KB-01 (T tilt, W wet) — labelled simulated
 	@cd backend && .venv/bin/python scripts/demo_live_sensor.py
+
+demo-check: ## Green/red checklist: API, DB, model, MQTT, Open-Meteo, map tiles, SMTP
+	@cd backend && .venv/bin/python scripts/demo_check.py
 
 test-email: ## Send a real alert email to TEST_ALERT_EMAIL (needs SMTP_* in .env)
 	@cd backend && .venv/bin/python scripts/test_alert_email.py

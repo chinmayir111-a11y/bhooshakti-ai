@@ -170,3 +170,9 @@ def test_voice_note_becomes_a_report_stored_like_a_photo(client, tx_db, no_siren
     assert row["voice_note_path"].startswith("/uploads/ivr-") and row["voice_note_path"].endswith(".wav")
     from app.config import settings
     (settings.upload_dir / row["voice_note_path"].rsplit("/", 1)[-1]).unlink(missing_ok=True)
+
+
+def test_public_risk_reports_last_observed_hour_of_rain(client):
+    r = client.get("/public/pincode/734223").json()
+    assert "rain_last_hour_mm" in r
+    assert r["rain_last_hour_mm"] is None or r["rain_last_hour_mm"] >= 0

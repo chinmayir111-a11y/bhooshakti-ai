@@ -34,6 +34,13 @@ def _answer(db: Session, zone_id: int | None, place: str, lang: str, inside: boo
           AND source NOT IN ('manual-test', 'all-clear')
         ORDER BY created_at DESC LIMIT 1
     """), {"z": zone_id}).mappings().first() if zone_id else None
+    # The latest observed hour (never a forecast row) drives the citizen
+    # header's rain animation; None when the zone has no recent observation.
+    rain = db.execute(text("""
+        SELECT rainfall_mm FROM rainfall_readings
+        WHERE zone_id = :z AND NOT is_forecast AND ts <= NOW() AND ts > NOW() - INTERVAL '2 hours'
+        ORDER BY ts DESC LIMIT 1
+    """), {"z": zone_id}).scalar() if zone_id else None
     return {
         "inside_zone": inside,
         "zone_id": zone_id,
@@ -44,6 +51,7 @@ def _answer(db: Session, zone_id: int | None, place: str, lang: str, inside: boo
         "active_alert": {"tier": active["tier"], "title": active["title"],
                          "created_at": active["created_at"].isoformat()} if active else None,
         "computed_at": risk["computed_at"].isoformat() if risk and risk["computed_at"] else None,
+        "rain_last_hour_mm": round(float(rain), 1) if rain is not None else None,
         "demo_data": True,
     }
 
