@@ -70,7 +70,11 @@ CRITICAL_CODE = "DJ-04"
 # resulting band per zone. Re-run it after retraining and re-pick from the table.
 # The scripted story is: all three corridor zones reach HIGH on telemetry alone,
 # and DJ-04 crosses into CRITICAL only once a field officer confirms movement.
-ZONE_TARGET_24H_MM = {"DJ-04": 45.0, "SK-02": 34.0, "DJ-01": 26.0}
+# Re-measured 2026-10-24 against model v2.0-xgb-real (trained on NASA GLC
+# events): at soil 78%, 60 mm -> 57 HIGH for DJ-04 (CRITICAL once a field
+# officer confirms, +25), 45 mm -> 53 HIGH for the other two. The earlier
+# 34/26 mm targets now land at 50.6 and 48.0 — on and under the line.
+ZONE_TARGET_24H_MM = {"DJ-04": 60.0, "SK-02": 45.0, "DJ-01": 45.0}
 DEFAULT_TARGET_24H_MM = 35.0
 
 # Peak soil saturation each zone reaches at the height of the storm.

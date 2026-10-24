@@ -68,15 +68,19 @@ def _plausible_ceiling(series: np.ndarray, horizon: int) -> float:
 
 
 def forecast_24h(hourly_rainfall_mm: list[float] | np.ndarray,
-                 horizon: int = FORECAST_HORIZON_HOURS) -> tuple[float, str]:
-    """Return (expected mm over the next `horizon` hours, method used)."""
+                 horizon: int = FORECAST_HORIZON_HOURS,
+                 allow_holt: bool = True) -> tuple[float, str]:
+    """Return (expected mm over the next `horizon` hours, method used).
+
+    `allow_holt=False` uses the EWMA persistence nowcast only — the backtest
+    replays thousands of hours, and a Holt fit per hour would take minutes."""
     series = np.asarray(list(hourly_rainfall_mm), dtype=float)
     series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
 
     persistence = max(0.0, _ewma_forecast(series, horizon))
     ceiling = _plausible_ceiling(series, horizon)
 
-    if series.size < MIN_HISTORY_HOURS or not _HAS_STATSMODELS:
+    if series.size < MIN_HISTORY_HOURS or not _HAS_STATSMODELS or not allow_holt:
         return round(min(persistence, ceiling), 1), "ewma"
 
     # Holt on a 3-hour rolling mean: raw hourly rainfall is too spiky for a

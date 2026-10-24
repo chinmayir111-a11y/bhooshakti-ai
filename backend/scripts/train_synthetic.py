@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train the landslide susceptibility model on the seeded (simulated) data.
 
-    python scripts/train.py
+    python scripts/train_synthetic.py      (offline development only — see train.py)
 
 Positives  : the 120 seeded historical events, with their feature values as of
              occurrence.

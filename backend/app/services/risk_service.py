@@ -262,7 +262,7 @@ def assess_series(rain: list[float], soil: list[float | None], *, label: str = "
     `rain` / `soil` are hourly, oldest first. For each index in `hours`
     (default: every hour with >= 15 days of history behind it) the same
     pipeline as the live system runs — window totals, seasonal normal, the
-    statistical 24h nowcast, the trained model, fusion — using ONLY data up to
+    EWMA 24h nowcast, the trained model, fusion — using ONLY data up to
     that hour. No future rainfall leaks in: the live system's Open-Meteo
     forecast is replaced by the nowcast, because no archived forecast exists
     for past events. There are no sensors and no terrain record for a
@@ -279,7 +279,7 @@ def assess_series(rain: list[float], soil: list[float | None], *, label: str = "
         hist = rain[: h + 1]
         totals = window_totals(hist)
         soil_now = next((v for v in reversed(soil[: h + 1]) if v is not None), 0.0)
-        fc_mm, _ = forecast_24h(hist)
+        fc_mm, _ = forecast_24h(hist, allow_holt=False)
         normal = seasonal_normal_72h(hist[-24 * 30:])
         prepared.append((h, totals, soil_now, fc_mm, normal))
 
