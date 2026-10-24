@@ -32,6 +32,8 @@ interface Props {
   orbit?: { lat: number; lon: number; zoom?: number } | null
   dark?: boolean
   terrain?: boolean
+  /** 'map' (OpenStreetMap) or 'satellite' (Esri World Imagery) */
+  basemap?: 'map' | 'satellite'
   /** metres of column height per unit of `value` (mm of rain) */
   columnScale?: number
   columnRadius?: number
@@ -43,10 +45,20 @@ const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{
 // OpenStreetMap raster tiles: free, no key. Dark mode is a raster treatment
 // of the same tiles, so there is one tile cache and no second provider.
 const BASE_TILES = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png']
+// Real imagery draped on the real DEM: the "accurate" look. Esri World Imagery
+// is free to view with attribution.
+const SAT_TILES = ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
 const ATTRIB = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · Terrain: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)'
+const SAT_ATTRIB = 'Imagery © Esri, Maxar, Earthstar Geographics · Terrain: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)'
+// SRTM is ~30 m; a mild exaggeration keeps slopes readable without turning
+// the Khasi hills into the Alps.
+const EXAGGERATION = 1.25
 const EMPTY = { type: 'FeatureCollection', features: [] as any[] }
 
-function basePaint(dark: boolean): any {
+function basePaint(dark: boolean, satellite = false): any {
+  if (satellite) return dark
+    ? { 'raster-saturation': -0.2, 'raster-brightness-max': 0.75, 'raster-opacity': 1 }
+    : { 'raster-saturation': 0.05, 'raster-brightness-max': 1, 'raster-opacity': 1 }
   return dark
     ? { 'raster-saturation': -0.85, 'raster-brightness-min': 0.05, 'raster-brightness-max': 0.38, 'raster-contrast': 0.15, 'raster-opacity': 1 }
     : { 'raster-saturation': -0.35, 'raster-brightness-max': 0.96, 'raster-opacity': 1 }
@@ -86,13 +98,17 @@ export default function Map3D(p: Props) {
         version: 8,
         sources: {
           base: { type: 'raster', tiles: BASE_TILES, tileSize: 256, attribution: ATTRIB, maxzoom: 19 },
+          sat: { type: 'raster', tiles: SAT_TILES, tileSize: 256, attribution: SAT_ATTRIB, maxzoom: 18 },
           dem: { type: 'raster-dem', tiles: [DEM_TILES], tileSize: 256, encoding: 'terrarium', maxzoom: 15 },
           zones: { type: 'geojson', data: EMPTY as any },
           roads: { type: 'geojson', data: EMPTY as any },
           villages: { type: 'geojson', data: EMPTY as any },
         },
         layers: [
-          { id: 'base', type: 'raster', source: 'base', paint: basePaint(!!p.dark) },
+          { id: 'base', type: 'raster', source: 'base', paint: basePaint(!!p.dark),
+            layout: { visibility: p.basemap === 'satellite' ? 'none' : 'visible' } },
+          { id: 'sat', type: 'raster', source: 'sat', paint: basePaint(!!p.dark, true),
+            layout: { visibility: p.basemap === 'satellite' ? 'visible' : 'none' } },
           { id: 'hillshade', type: 'hillshade', source: 'dem',
             paint: { 'hillshade-exaggeration': 0.42, 'hillshade-shadow-color': '#2f3b36', 'hillshade-highlight-color': '#ffffff' } },
           { id: 'zone-fill', type: 'fill', source: 'zones',
@@ -130,7 +146,7 @@ export default function Map3D(p: Props) {
 
     m.on('load', () => {
       ready.current = true
-      if (props.current.terrain !== false) m.setTerrain({ source: 'dem', exaggeration: 1.6 })
+      if (props.current.terrain !== false) m.setTerrain({ source: 'dem', exaggeration: EXAGGERATION })
       m.on('click', 'zone-fill', (e) => {
         const f = e.features?.[0]
         if (f && select.current) select.current(Number(f.properties?.id))
@@ -321,12 +337,27 @@ export default function Map3D(p: Props) {
     for (const [k, v] of Object.entries(basePaint(!!p.dark))) {
       try { m.setPaintProperty('base', k, v) } catch { /* style not ready */ }
     }
+    for (const [k, v] of Object.entries(basePaint(!!p.dark, true))) {
+      try { m.setPaintProperty('sat', k, v) } catch { /* style not ready */ }
+    }
   }, [p.dark])
 
   useEffect(() => {
     const m = map.current
     if (!m || !ready.current) return
-    m.setTerrain(p.terrain === false ? null : { source: 'dem', exaggeration: 1.6 })
+    const sat = p.basemap === 'satellite'
+    try {
+      m.setLayoutProperty('base', 'visibility', sat ? 'none' : 'visible')
+      m.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none')
+      // Hillshade on top of imagery double-shades the slopes; keep it light.
+      m.setPaintProperty('hillshade', 'hillshade-exaggeration', sat ? 0.18 : 0.42)
+    } catch { /* style not ready */ }
+  }, [p.basemap])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready.current) return
+    m.setTerrain(p.terrain === false ? null : { source: 'dem', exaggeration: EXAGGERATION })
   }, [p.terrain])
 
   useEffect(() => {

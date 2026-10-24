@@ -91,3 +91,13 @@ def no_siren(monkeypatch):
     from app.mqtt_client import ingest
     monkeypatch.setattr(ingest, "publish", lambda topic, payload, retain=False: sent.append((topic, payload)) or True)
     return sent
+
+
+@pytest.fixture(autouse=True, scope="session")
+def trained_model():
+    """Load the trained model once, as the API does at startup. Without this
+    every risk computed in a test comes from the heuristic fallback and
+    silently disagrees with the running system."""
+    from app.services import risk_service
+    risk_service.registry.load()
+    yield

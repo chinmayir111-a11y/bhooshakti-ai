@@ -63,12 +63,33 @@ export default function Replay() {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<typeof SPEEDS[number]>(4)
   const [show3d, setShow3d] = useLocalFlag('bhooshakti.replay3d', true)
+  const [satellite, setSatellite] = useLocalFlag('bhooshakti.replay.satellite', true)
+  const [custom, setCustom] = useState({ pincode: '734223', lat: '', lon: '', date: '2024-05-28', time: '', label: '' })
+  const [customBusy, setCustomBusy] = useState(false)
+  const [customError, setCustomError] = useState('')
   const shock = useRef<Pulse[]>([])
 
   useEffect(() => {
     api.replayEvents().then((e) => { setEvents(e); if (e[0]) setSelected(e[0].id) }).catch(() => setError('The API is not reachable.'))
     api.replaySummary().then(setSummary).catch(() => {})
   }, [])
+
+  async function runCustom(e: React.FormEvent) {
+    e.preventDefault()
+    setCustomBusy(true); setCustomError(''); setPlaying(false); shock.current = []
+    try {
+      const body: any = { date: custom.date, label: custom.label, time: custom.time || null }
+      if (custom.lat && custom.lon) { body.lat = Number(custom.lat); body.lon = Number(custom.lon) }
+      else body.pincode = custom.pincode
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/replay/custom`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+      setSelected(null); setWindow('event'); setTl(data as ReplayTimeline); setIdx(0); setPlaying(true)
+    } catch (err: any) {
+      setCustomError(err?.message ?? 'Could not replay that place and date')
+    } finally { setCustomBusy(false) }
+  }
 
   useEffect(() => {
     if (selected == null) return
@@ -84,7 +105,17 @@ export default function Replay() {
     return () => clearInterval(id)
   }, [playing, speed, tl])
 
-  const ev = useMemo(() => events.find((e) => e.id === selected) ?? null, [events, selected])
+  const ev = useMemo<ReplayEvent | null>(() => {
+    const found = events.find((e) => e.id === selected)
+    if (found) return found
+    if (tl && tl.event.source === 'Your input') {
+      return { id: 0, source: 'Your input', source_event_id: 'custom', date: tl.event.date, time_known: false,
+               lat: tl.event.lat, lon: tl.event.lon, state: '', title: tl.event.title, trigger: '', fatalities: 0,
+               source_url: '', location_accuracy: '', outcome: tl.verdict.outcome ?? null,
+               lead_hours: tl.verdict.lead_hours ?? null, demo: false, real: true }
+    }
+    return null
+  }, [events, selected, tl])
   const h = tl?.hours[idx]
   const refReached = !!(tl && h && window_ === 'event' && h.ts >= tl.event.reference)
   const firedReached = !!(tl && h && tl.verdict.first_alert && h.ts >= tl.verdict.first_alert)
@@ -100,6 +131,13 @@ export default function Replay() {
       banner = tl.verdict.false_alarm
         ? { cls: 'fired', text: `Dry week: risk reached HIGH for ${tl.verdict.hours_high} h — a false alarm (peak ${tl.verdict.peak_score}).` }
         : { cls: 'ok', text: `Dry week at the same place: risk stayed below HIGH (peak ${tl.verdict.peak_score}). No false alarm.` }
+    } else if (refReached && tl.event.source === 'Your input') {
+      const day = fmt(tl.event.reference, { day: '2-digit', month: 'short', year: 'numeric' })
+      banner = tl.verdict.outcome === 'warned_before'
+        ? { cls: 'fired', text: `By ${tl.event.time_known ? fmt(tl.event.reference) : `the start of ${day}`} the system had been at HIGH for ${lead} hours.` }
+        : tl.verdict.outcome === 'same_day'
+          ? { cls: 'fired', text: `Risk crossed HIGH at ${fmt(tl.verdict.first_alert!)} — during ${day}, after the day began. Enter the event time to see whether that was before it.` }
+          : { cls: 'ok', text: `No alert: risk stayed below HIGH in the week before ${day} (peak ${tl.verdict.peak_score}).` }
     } else if (refReached) {
       banner = tl.verdict.outcome === 'warned_before'
         ? { cls: 'event', text: `Landslide reported ${fmt(tl.event.reference, { day: '2-digit', month: 'short', year: 'numeric' })}${tl.event.time_known ? ` at ${fmt(tl.event.reference, { hour: '2-digit', minute: '2-digit' })}` : ' (time not recorded)'} — the alert had been live for ${lead} hours.` }
@@ -149,10 +187,32 @@ export default function Replay() {
             </div>
           )}
 
+          <div className="card lift">
+            <div className="card-head"><h3>Test your own place and date</h3><span className="tiny muted">any pincode or point, any day since 1950 — real ERA5 weather is fetched for the 30 days before it</span></div>
+            <form className="card-body row" style={{ gap: 10, alignItems: 'flex-end' }} onSubmit={runCustom}>
+              <div style={{ flex: '0 1 130px' }}><label className="label" htmlFor="cpin">Pincode</label>
+                <input id="cpin" inputMode="numeric" maxLength={6} value={custom.pincode} onChange={(e) => setCustom({ ...custom, pincode: e.target.value.replace(/\D/g, ''), lat: '', lon: '' })} placeholder="734223" /></div>
+              <span className="tiny muted" style={{ paddingBottom: 10 }}>or</span>
+              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clat">Latitude</label>
+                <input id="clat" inputMode="decimal" value={custom.lat} onChange={(e) => setCustom({ ...custom, lat: e.target.value })} placeholder="24.782" /></div>
+              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="clon">Longitude</label>
+                <input id="clon" inputMode="decimal" value={custom.lon} onChange={(e) => setCustom({ ...custom, lon: e.target.value })} placeholder="93.663" /></div>
+              <div style={{ flex: '0 1 170px' }}><label className="label" htmlFor="cdate">Date to test</label>
+                <input id="cdate" type="date" value={custom.date} onChange={(e) => setCustom({ ...custom, date: e.target.value })} /></div>
+              <div style={{ flex: '0 1 120px' }}><label className="label" htmlFor="ctime">Time IST (optional)</label>
+                <input id="ctime" type="time" value={custom.time} onChange={(e) => setCustom({ ...custom, time: e.target.value })} /></div>
+              <div style={{ flex: '1 1 160px' }}><label className="label" htmlFor="clabel">Label (optional)</label>
+                <input id="clabel" value={custom.label} onChange={(e) => setCustom({ ...custom, label: e.target.value })} placeholder="e.g. Kurseong slide I remember" /></div>
+              <button className="btn" type="submit" disabled={customBusy}>{customBusy ? 'Fetching ERA5…' : 'Replay it'}</button>
+              {customError && <p className="notice tiny" style={{ flex: '1 1 100%', margin: 0 }}>{customError}</p>}
+            </form>
+          </div>
+
           <div className="card">
             <div className="card-head" style={{ flexWrap: 'wrap' }}>
               <label className="label" htmlFor="ev">Event</label>
               <select id="ev" value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))} style={{ maxWidth: 520, flex: '1 1 260px' }}>
+                {selected == null && <option value="">— your own place and date —</option>}
                 {events.map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.demo ? '★ ' : ''}{e.date} · {e.state} · {e.title.slice(0, 60)} — {e.outcome === 'warned_before' ? `warned ${e.lead_hours} h ahead` : e.outcome === 'same_day' ? 'same day' : e.outcome === 'missed' ? 'missed' : '—'}
@@ -178,12 +238,17 @@ export default function Replay() {
                     {show3d ? (
                       <div className="map-box">
                         <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 11.6 }} columns={columns} pulses={refReached ? shock.current : []}
-                                 columnScale={140} columnRadius={700} terrain center={[tl.event.lon, tl.event.lat]} zoom={11.6} />
+                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} columns={columns} pulses={refReached ? shock.current : []}
+                                 columnScale={140} columnRadius={500} terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2}
+                                 basemap={satellite ? 'satellite' : 'map'} />
                         </Suspense>
                         <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5 }} className="row">
                           <span className="provbadge real">REAL · AWS terrain</span>
                           <span className="provbadge real">column = 24 h rain, ERA5</span>
+                          <span className="seg" style={{ background: 'var(--surface)' }}>
+                            <button className={!satellite ? 'on' : ''} onClick={() => setSatellite(false)}>Map</button>
+                            <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)}>Satellite</button>
+                          </span>
                         </div>
                       </div>
                     ) : (

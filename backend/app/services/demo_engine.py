@@ -770,12 +770,12 @@ class DemoEngine:
         """Remember the weather rows the storm is about to overwrite."""
         since = datetime.now(timezone.utc) - timedelta(hours=STORM_HOURS + 2)
         rain = db.execute(text("""
-            SELECT r.zone_id, r.ts, r.rainfall_mm, r.source
+            SELECT r.zone_id, r.ts, r.rainfall_mm, r.source, r.is_forecast
             FROM rainfall_readings r JOIN zones z ON z.id = r.zone_id
             WHERE z.code = ANY(:c) AND r.ts >= :since
         """), {"c": self.state.zone_codes, "since": since}).mappings().all()
         soil = db.execute(text("""
-            SELECT s.zone_id, s.ts, s.moisture_pct, s.source
+            SELECT s.zone_id, s.ts, s.moisture_pct, s.source, s.is_forecast
             FROM soil_moisture_readings s JOIN zones z ON z.id = s.zone_id
             WHERE z.code = ANY(:c) AND s.ts >= :since
         """), {"c": self.state.zone_codes, "since": since}).mappings().all()
@@ -808,17 +808,21 @@ class DemoEngine:
             if row["kind"] == "rain":
                 db.execute(text("""
                     INSERT INTO rainfall_readings (zone_id, ts, rainfall_mm, source, is_forecast)
-                    VALUES (:z,:ts,:v,:s,FALSE)
+                    VALUES (:z,:ts,:v,:s,:f)
                     ON CONFLICT ON CONSTRAINT uq_rainfall_zone_hour DO NOTHING
                 """), {"z": row["zone_id"], "ts": row["ts"],
-                       "v": row["rainfall_mm"], "s": row["source"]})
+                       "v": row["rainfall_mm"], "s": row["source"],
+                       # Restoring a forecast row as an observation would put
+                       # tomorrow's rain into every trailing-24h total.
+                       "f": bool(row.get("is_forecast", False))})
             else:
                 db.execute(text("""
                     INSERT INTO soil_moisture_readings (zone_id, ts, moisture_pct, source, is_forecast)
-                    VALUES (:z,:ts,:v,:s,FALSE)
+                    VALUES (:z,:ts,:v,:s,:f)
                     ON CONFLICT ON CONSTRAINT uq_soil_zone_hour DO NOTHING
                 """), {"z": row["zone_id"], "ts": row["ts"],
-                       "v": row["moisture_pct"], "s": row["source"]})
+                       "v": row["moisture_pct"], "s": row["source"],
+                       "f": bool(row.get("is_forecast", False))})
         log.info("demo: restored %d weather rows", len(self._weather_snapshot))
 
 

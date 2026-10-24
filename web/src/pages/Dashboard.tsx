@@ -62,6 +62,7 @@ export default function Dashboard() {
   const tickSeq = useRef(0)
 
   const [mode, setMode] = useLocalFlag('bhooshakti.map2d', false)      // true = 2D / low data
+  const [satellite, setSatellite] = useLocalFlag('bhooshakti.satellite', false)
   const [railTab, setRailTab] = useState<'alerts' | 'reports'>('alerts')
   const [layersOpen, setLayersOpen] = useState(false)
   const [layers, setLayers] = useState<Layers>({ risk: true, roads: true, villages: true, sensors: true, historical: false })
@@ -388,7 +389,8 @@ export default function Dashboard() {
               <Map3D zones={layers.risk ? zones : null} roads={layers.roads ? infrastructure?.roads : null}
                      villages={layers.villages ? infrastructure?.villages : null}
                      columns={columns} pins={pins} pulses={pulses}
-                     selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark} />
+                     selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark}
+                     basemap={satellite ? 'satellite' : 'map'} />
             </Suspense>
           )}
 
@@ -397,6 +399,12 @@ export default function Dashboard() {
               <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="MapLibre GL + AWS terrain tiles + deck.gl">3D terrain</button>
               <button className={mode ? 'on' : ''} onClick={() => setMode(true)} title="Leaflet raster tiles — for slow networks and low-end phones">2D / low data</button>
             </div>
+            {!mode && (
+              <div className="seg">
+                <button className={!satellite ? 'on' : ''} onClick={() => setSatellite(false)}>Map</button>
+                <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)} title="Esri World Imagery on the real terrain">Satellite</button>
+              </div>
+            )}
           </div>
 
           <div className={`map-panel tl${layersOpen ? '' : ' is-collapsed'}`}>

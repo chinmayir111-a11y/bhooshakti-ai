@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from ml.backtest import HIGH, evaluate_event, evaluate_window, first_alert, summarise
+
+from .conftest import requires_db
 from scripts.import_landslides import (
     Event,
     filter_ne_india,
@@ -140,3 +142,36 @@ def test_window_false_alarm_and_summary_counts():
     assert s["median_lead_hours"] == 21.0
     assert s["non_event_false_alarms"] == 1 and s["dry_false_alarms"] == 0
     assert s["headline"].startswith("Warned before 2 of 4 held-out landslides")
+
+
+# -------------------------------------------------------------- custom replay
+
+
+@requires_db
+def test_custom_replay_validates_input(client):
+    from datetime import date as _d
+    assert client.post("/replay/custom", json={"date": "2024-05-28"}).status_code == 422
+    assert client.post("/replay/custom", json={"pincode": "000000", "date": "2024-05-28"}).status_code == 404
+    too_recent = (_d.today()).isoformat()
+    assert client.post("/replay/custom", json={"pincode": "796001", "date": too_recent}).status_code == 422
+
+
+@requires_db
+def test_custom_replay_reuses_the_cached_aizawl_window(client):
+    """Aizawl 2024's ERA5 window is already cached by import_landslides, so this
+    needs no network: the custom replay must give the same verdict the
+    catalogued event gets."""
+    # Date only: the reference is the start of the day, and Aizawl's 02:30 IST
+    # alert lands AFTER midnight — a same-day crossing, honestly labelled.
+    r = client.post("/replay/custom", json={"lat": 23.684, "lon": 92.715, "date": "2024-05-28", "label": "Hlimen"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["event"]["source"] == "Your input" and body["event"]["title"] == "Hlimen"
+    assert body["provenance"]["weather_fetch"] == "cached"
+    assert body["verdict"]["outcome"] == "same_day" and body["verdict"]["first_alert"]
+    assert len(body["hours"]) > 24 * 7
+
+    # With the recorded time (06:00 IST) it matches the catalogued verdict.
+    r = client.post("/replay/custom", json={"lat": 23.684, "lon": 92.715, "date": "2024-05-28", "time": "06:00"})
+    v = r.json()["verdict"]
+    assert v["outcome"] == "warned_before" and v["lead_hours"] == 3.5

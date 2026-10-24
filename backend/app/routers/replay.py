@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..config import settings
 from ..services import history, replay
 
 router = APIRouter(prefix="/replay", tags=["backtest"])
@@ -94,4 +96,76 @@ def replay_event(event_id: int, window: str = Query("event", pattern="^(event|dr
             "forecast_input": "statistical nowcast only (no future data used)",
             "real": True,
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bring your own place and date
+# ---------------------------------------------------------------------------
+
+
+class CustomReplayRequest(BaseModel):
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    pincode: str | None = Field(None, pattern=r"^\d{6}$")
+    date: date
+    # Optional local time of the event (IST). Without it the start of the day
+    # is the reference, so an alert only counts if it beat the whole day.
+    time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    label: str = ""
+
+
+@router.post("/custom", summary="Replay any place and past date through the pipeline")
+def replay_custom(body: CustomReplayRequest, db: Session = Depends(get_db)) -> dict:
+    """Fetches (and caches) 30 days of ERA5 before `date` for the point, then
+    replays it exactly like a catalogued event. The given date is treated as
+    the day being tested, so the verdict reads the same way: did risk reach
+    HIGH before the start of that day?"""
+    lat, lon, place = body.lat, body.lon, body.label
+    if body.pincode:
+        row = db.execute(text("SELECT place, lat, lon FROM pincodes WHERE pincode = :p LIMIT 1"),
+                         {"p": body.pincode}).mappings().first()
+        if row is None:
+            raise HTTPException(404, f"Pincode {body.pincode} is not in the demo districts")
+        lat, lon, place = row["lat"], row["lon"], place or f"{row['place']} ({body.pincode})"
+    if lat is None or lon is None:
+        raise HTTPException(422, "Give a pincode or a latitude and longitude")
+    lag = settings.weather_archive_lag_days + 2
+    if body.date > date.today() - timedelta(days=lag):
+        raise HTTPException(422, f"ERA5 lags real time: pick a date at least {lag} days ago")
+    if body.date < date(1950, 1, 1):
+        raise HTTPException(422, "ERA5 starts in 1950")
+
+    s, e = history.window_for(body.date)
+    result = history.ensure_window(db, lat, lon, s, e)
+    if result.startswith("failed"):
+        raise HTTPException(502, f"Open-Meteo did not return weather for that window ({result})")
+
+    hh, mm = (int(x) for x in body.time.split(":")) if body.time else (0, 0)
+    if hh > 23 or mm > 59:
+        raise HTTPException(422, "time must be HH:MM")
+    day_start = datetime(body.date.year, body.date.month, body.date.day, tzinfo=history.IST)
+    ref = day_start.replace(hour=hh, minute=mm).astimezone(timezone.utc)
+    day_end = (day_start + timedelta(days=1)).astimezone(timezone.utc)
+    tl = replay.timeline(db, lat, lon, body.date, day_end + timedelta(hours=24))
+    if not tl:
+        raise HTTPException(502, "Not enough hourly weather came back for that window")
+
+    from ml.backtest import HIGH, evaluate_event
+    verdict = evaluate_event([(r["ts"], r["risk_score"]) for r in tl], ref, day_end)
+    grid = tl[0]["grid"]
+    return {
+        "event": {"id": 0, "source": "Your input", "source_event_id": "custom", "time_known": body.time is not None,
+                  "lat": lat, "lon": lon, "state": "", "title": place or f"{lat:.4f}, {lon:.4f}",
+                  "fatalities": 0, "source_url": "", "date": body.date.isoformat(),
+                  "reference": ref.isoformat(), "day_end": day_end.isoformat()},
+        "window": "event", "threshold": HIGH, "verdict": verdict,
+        "hours": [{"ts": r["ts"].isoformat(), "rain_mm": round(r["rain_mm"], 2),
+                   "rainfall_24h": r["rainfall_24h"], "soil_moisture_pct": r["soil_moisture_pct"],
+                   "risk_score": r["risk_score"], "severity": r["severity"]} for r in tl],
+        "provenance": {"events": "user-supplied place and date (not a catalogued landslide)",
+                       "weather": "ERA5 hourly reanalysis via Open-Meteo archive, fetched for this request",
+                       "grid": {"lat": grid[0], "lon": grid[1]},
+                       "forecast_input": "statistical nowcast only (no future data used)", "real": True,
+                       "weather_fetch": result},
     }
