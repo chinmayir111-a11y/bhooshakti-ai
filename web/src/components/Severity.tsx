@@ -63,7 +63,7 @@ export function SeverityShape({ value, size = 16, fill, stroke, title }: {
 export function SeverityChip({ value, size = 14, label }: { value: Severity | string; size?: number; label?: string }) {
   const sev = asSeverity(value)
   return (
-    <span className={`sevmark ${sev}`} style={{ color: SEVERITY_INK[sev], fontSize: Math.max(10.5, size - 3) }}>
+    <span className={`sevmark ${sev}`} style={{ color: `var(--sev-${sev.toLowerCase()}-ink, ${SEVERITY_INK[sev]})`, fontSize: Math.max(10.5, size - 3) }}>
       <SeverityShape value={sev} size={size} />
       {label ?? sev}
     </span>

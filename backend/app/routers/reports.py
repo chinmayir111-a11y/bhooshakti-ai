@@ -24,6 +24,7 @@ router = APIRouter(prefix="/reports", tags=["citizen reports"])
 
 ISSUE_LABELS = {
     "landslide": "Landslide",
+    "sos": "SOS — person in danger",
     "crack": "Ground / wall cracking",
     "slope_movement": "Visible slope movement",
     "road_blockage": "Road blocked by debris",

@@ -27,6 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 POINTS = {
+    "sos": 40,
     "zone_at_risk": 30,
     "rain_above_threshold": 20,
     "sensor_anomaly": 25,
@@ -66,6 +67,10 @@ class Evidence:
     independent_phones: int = 0
     has_photo: bool = False
     geo_valid: bool = True
+    # The SOS button: held for two seconds by someone who says they are in
+    # danger right now. Weighted so a single SOS inside a HIGH zone reaches the
+    # immediate-advisory line (40 + 30 + rain 20 >= 85) without any photo.
+    is_sos: bool = False
 
 
 def score_evidence(e: Evidence) -> tuple[float, list[dict[str, Any]]]:
@@ -75,6 +80,8 @@ def score_evidence(e: Evidence) -> tuple[float, list[dict[str, Any]]]:
     def add(key: str, text_: str) -> None:
         reasons.append({"key": key, "points": POINTS[key], "text": text_})
 
+    if e.is_sos:
+        add("sos", "SOS held for two seconds by a person reporting immediate danger")
     if e.zone_severity in ("HIGH", "CRITICAL"):
         add("zone_at_risk", f"Inside {e.zone_name or 'a zone'}, currently rated {e.zone_severity}")
     if (e.rain_24h_mm is not None and e.rain_threshold_mm is not None
@@ -202,7 +209,8 @@ def gather_evidence(db: Session, report, now: datetime | None = None) -> Evidenc
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
 
-    e = Evidence(has_photo=bool(report.photo_path), geo_valid=bool(report.geo_valid))
+    e = Evidence(has_photo=bool(report.photo_path), geo_valid=bool(report.geo_valid),
+                 is_sos=report.issue_type == "sos")
     if report.zone_id:
         e.zone_name, e.zone_severity = _zone_state(db, report.zone_id)
         e.rain_24h_mm = observed_rain_24h(db, report.zone_id, now)

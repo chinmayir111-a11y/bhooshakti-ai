@@ -124,3 +124,13 @@ def test_zone_rain_threshold_is_floored(tx_db):
     from app.services import corroboration
     zone_id = tx_db.execute(text("SELECT id FROM zones ORDER BY id LIMIT 1")).scalar()
     assert corroboration.zone_rain_threshold(tx_db, zone_id) >= corroboration.RAIN_THRESHOLD_FLOOR_MM
+
+
+def test_sos_is_top_priority_evidence():
+    from app.services.corroboration import Evidence, score_evidence
+    score, reasons = score_evidence(Evidence(is_sos=True, zone_severity="HIGH", zone_name="Z",
+                                             rain_24h_mm=80, rain_threshold_mm=60))
+    assert score >= 85                      # reaches the immediate-advisory line alone
+    assert any(r["key"] == "sos" and r["points"] == 40 for r in reasons)
+    plain, _ = score_evidence(Evidence(zone_severity="HIGH", zone_name="Z", rain_24h_mm=80, rain_threshold_mm=60))
+    assert plain == score - 40

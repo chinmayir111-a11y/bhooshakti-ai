@@ -34,6 +34,8 @@
   --highlight-soft: #FBF0D3;
   --highlight-ink:  #7A5A0F;
   --on-brand:     #FFFFFF;
+  --header-bg:    #0B1411;   /* the control-room header is dark in both modes */
+  --danger:       #DC2626;
 
   --bg:           var(--mist);
   --surface:      #FFFFFF;
@@ -73,32 +75,37 @@
 :root:lang(hi), :root:lang(ne) { --font-head: "Baloo Bhai 2", "Baloo 2", var(--font); }
 :root:lang(as), :root:lang(bn) { --font-head: "Baloo Da 2", "Baloo 2", var(--font); }
 
-/* Full dark mode — the control room runs at night. Same hues, lifted. */
+/* Dark mode — the default for the control room and the replay page, and the
+   citizen app's own night-forest look. Same hues as the citizen scene. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --brand: #86C38D; --brand-ink: #A9D8AE; --brand-soft: #24402A; --brand-press: #5E9A66; --on-brand: #0E1A10;
-    --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: #3A2418;
-    --highlight-soft: #3A3014; --highlight-ink: #E3B23C;
-    --bg: #141815; --surface: #1C211D; --surface-2: #232A25; --surface-3: #2B332D;
-    --line: #333C35; --line-strong: #435046;
-    --text: #ECE8DF; --text-muted: #B5B9AE; --text-faint: #979C92;
-    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FDE047; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+    --brand: #7FD1AE; --brand-ink: #9EDFC3; --brand-soft: rgba(127,209,174,.16); --brand-press: #5FB391; --on-brand: #0F1A17;
+    --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: rgba(232,148,106,.16);
+    --highlight-soft: rgba(227,178,60,.16); --highlight-ink: #E3B23C;
+    --bg: #0F1A17; --surface: #16231F; --surface-2: #1C2B26; --surface-3: #243631;
+    --line: rgba(232,239,234,.12); --line-strong: rgba(232,239,234,.26);
+    --text: #E8EFEA; --text-muted: #9FB2AA; --text-faint: #8A9C94;
+    --header-bg: #0B1411;
+    --danger: #DC2626;
+    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FACC15; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 3px 12px rgba(0,0,0,.45);
     --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --brand: #86C38D; --brand-ink: #A9D8AE; --brand-soft: #24402A; --brand-press: #5E9A66; --on-brand: #0E1A10;
-  --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: #3A2418;
-  --highlight-soft: #3A3014; --highlight-ink: #E3B23C;
-  --bg: #141815; --surface: #1C211D; --surface-2: #232A25; --surface-3: #2B332D;
-  --line: #333C35; --line-strong: #435046;
-  --text: #ECE8DF; --text-muted: #B5B9AE; --text-faint: #979C92;
-  --sev-low-ink: #4ADE80; --sev-moderate-ink: #FDE047; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 3px 12px rgba(0,0,0,.45);
-  --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
-  color-scheme: dark;
+    --brand: #7FD1AE; --brand-ink: #9EDFC3; --brand-soft: rgba(127,209,174,.16); --brand-press: #5FB391; --on-brand: #0F1A17;
+    --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: rgba(232,148,106,.16);
+    --highlight-soft: rgba(227,178,60,.16); --highlight-ink: #E3B23C;
+    --bg: #0F1A17; --surface: #16231F; --surface-2: #1C2B26; --surface-3: #243631;
+    --line: rgba(232,239,234,.12); --line-strong: rgba(232,239,234,.26);
+    --text: #E8EFEA; --text-muted: #9FB2AA; --text-faint: #8A9C94;
+    --header-bg: #0B1411;
+    --danger: #DC2626;
+    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FACC15; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 3px 12px rgba(0,0,0,.45);
+    --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -117,7 +124,7 @@ h1, h2, h3, .head-font { font-family: var(--font-head); }
 :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
 
 /* ----------------------------------------------------------- severity mark */
-.sevmark { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: .06em; }
+.sevmark { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px 2px 4px; background: color-mix(in srgb, currentColor 15%, transparent); }
 .sevmark svg { flex: 0 0 auto; }
 .sevmark.CRITICAL svg { animation: sev-pulse 1.4s var(--ease) infinite; transform-origin: center; }
 @keyframes sev-pulse {

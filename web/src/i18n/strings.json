@@ -111,7 +111,16 @@
     "scene_sub_unknown": "We will show the risk for your hills here",
     "scene_rain": "Rain · {mm} mm this hour",
     "scene_clear": "Clear",
-    "scene_storm": "Storm"
+    "scene_storm": "Storm",
+    "check_area": "Check my area",
+    "sos_hold": "Hold 2 seconds to send",
+    "sos_holding": "Keep holding…",
+    "sos_sending": "Sending SOS…",
+    "sos_sent": "SOS sent — stay away from the slope",
+    "sos_sent_body": "Your location and time have gone to the district officer as top priority. We are opening a call to 112.",
+    "sos_queued_body": "No network: the SOS is saved and will send when it returns. We are opening your SMS app with your location.",
+    "sos_no_location": "We could not get your location. Call 112 now.",
+    "call_112": "Call 112"
   },
   "hi": {
     "lang_name": "हिन्दी",
@@ -209,7 +218,16 @@
     "scene_sub_unknown": "यहाँ आपके पहाड़ों का ख़तरा दिखेगा",
     "scene_rain": "बारिश · इस घंटे {mm} मिमी",
     "scene_clear": "साफ़",
-    "scene_storm": "तूफ़ान"
+    "scene_storm": "तूफ़ान",
+    "check_area": "मेरा इलाक़ा जाँचें",
+    "sos_hold": "भेजने के लिए 2 सेकंड दबाए रखें",
+    "sos_holding": "दबाए रखें…",
+    "sos_sending": "SOS भेजा जा रहा है…",
+    "sos_sent": "SOS भेज दिया — ढलान से दूर रहें",
+    "sos_sent_body": "आपकी जगह और समय ज़िला अधिकारी को सर्वोच्च प्राथमिकता से भेज दिए गए हैं। हम 112 पर कॉल खोल रहे हैं।",
+    "sos_queued_body": "नेटवर्क नहीं: SOS सहेज लिया गया, नेटवर्क आते ही जाएगा। हम आपकी जगह के साथ SMS ऐप खोल रहे हैं।",
+    "sos_no_location": "आपकी जगह नहीं मिल सकी। अभी 112 पर कॉल करें।",
+    "call_112": "112 पर कॉल करें"
   },
   "as": {
     "lang_name": "অসমীয়া",
@@ -307,7 +325,16 @@
     "scene_sub_unknown": "ইয়াত আপোনাৰ পাহাৰৰ বিপদ দেখুওৱা হ'ব",
     "scene_rain": "বৰষুণ · এই ঘণ্টাত {mm} মিমি",
     "scene_clear": "পৰিষ্কাৰ",
-    "scene_storm": "ধুমুহা"
+    "scene_storm": "ধুমুহা",
+    "check_area": "মোৰ এলেকা পৰীক্ষা কৰক",
+    "sos_hold": "পঠিয়াবলৈ ২ ছেকেণ্ড ধৰি ৰাখক",
+    "sos_holding": "ধৰি ৰাখক…",
+    "sos_sending": "SOS পঠিওৱা হৈছে…",
+    "sos_sent": "SOS পঠিওৱা হ'ল — ঢালৰ পৰা আঁতৰত থাকক",
+    "sos_sent_body": "আপোনাৰ স্থান আৰু সময় জিলা বিষয়ালৈ সৰ্বোচ্চ অগ্ৰাধিকাৰেৰে গৈছে। আমি 112 লৈ কল খুলিছোঁ।",
+    "sos_queued_body": "নেটৱৰ্ক নাই: SOS সংৰক্ষিত, নেটৱৰ্ক আহিলেই যাব। আপোনাৰ স্থানৰ সৈতে SMS এপ খুলিছোঁ।",
+    "sos_no_location": "আপোনাৰ স্থান পোৱা নগ'ল। এতিয়াই 112 লৈ কল কৰক।",
+    "call_112": "112 লৈ কল কৰক"
   },
   "bn": {
     "lang_name": "বাংলা",
@@ -405,7 +432,16 @@
     "scene_sub_unknown": "এখানে আপনার পাহাড়ের ঝুঁকি দেখানো হবে",
     "scene_rain": "বৃষ্টি · এই ঘণ্টায় {mm} মিমি",
     "scene_clear": "পরিষ্কার",
-    "scene_storm": "ঝড়"
+    "scene_storm": "ঝড়",
+    "check_area": "আমার এলাকা দেখুন",
+    "sos_hold": "পাঠাতে ২ সেকেন্ড চেপে ধরুন",
+    "sos_holding": "ধরে রাখুন…",
+    "sos_sending": "SOS পাঠানো হচ্ছে…",
+    "sos_sent": "SOS পাঠানো হয়েছে — ঢাল থেকে দূরে থাকুন",
+    "sos_sent_body": "আপনার অবস্থান ও সময় সর্বোচ্চ অগ্রাধিকারে জেলা কর্মকর্তার কাছে গেছে। আমরা 112-এ কল খুলছি।",
+    "sos_queued_body": "নেটওয়ার্ক নেই: SOS সংরক্ষিত, ফিরলেই যাবে। আপনার অবস্থানসহ SMS অ্যাপ খুলছি।",
+    "sos_no_location": "আপনার অবস্থান পাওয়া যায়নি। এখনই 112-এ কল করুন।",
+    "call_112": "112-এ কল করুন"
   },
   "ne": {
     "lang_name": "नेपाली",
@@ -503,6 +539,15 @@
     "scene_sub_unknown": "यहाँ तपाईंका पहाडको जोखिम देखाइनेछ",
     "scene_rain": "वर्षा · यस घण्टा {mm} मिमी",
     "scene_clear": "सफा",
-    "scene_storm": "आँधी"
+    "scene_storm": "आँधी",
+    "check_area": "मेरो क्षेत्र जाँच्नुहोस्",
+    "sos_hold": "पठाउन २ सेकेन्ड थिचिराख्नुहोस्",
+    "sos_holding": "थिचिराख्नुहोस्…",
+    "sos_sending": "SOS पठाउँदै…",
+    "sos_sent": "SOS पठाइयो — भिरालोबाट टाढा बस्नुहोस्",
+    "sos_sent_body": "तपाईंको स्थान र समय जिल्ला अधिकारीलाई उच्च प्राथमिकतामा पठाइयो। हामी 112 मा कल खोल्दैछौं।",
+    "sos_queued_body": "नेटवर्क छैन: SOS सुरक्षित छ, फर्केपछि जान्छ। तपाईंको स्थानसहित SMS एप खोल्दैछौं।",
+    "sos_no_location": "तपाईंको स्थान पाइएन। अहिले 112 मा कल गर्नुहोस्।",
+    "call_112": "112 मा कल गर्नुहोस्"
   }
 }
