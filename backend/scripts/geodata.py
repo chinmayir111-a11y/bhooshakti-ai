@@ -372,3 +372,64 @@ def polyline_length_km(coords: list[tuple[float, float]]) -> float:
 
 
 ZONE_BY_CODE = {z.code: z for z in ZONES}
+
+
+# ---------------------------------------------------------------------------
+# Pincodes for the demo districts — keyword SMS (LS / SAFE / JOIN <pincode>)
+# is located through these. Real India Post codes for the head post office
+# of each town, with town-centre coordinates; reverify against the India Post
+# directory before any real deployment (some towns have several codes).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PincodeSpec:
+    pincode: str
+    place: str
+    district: str
+    state: str
+    lat: float
+    lon: float
+    zone_code: str | None
+
+
+PINCODES: list[PincodeSpec] = [
+    PincodeSpec("737101", "Gangtok", "Gangtok", "Sikkim", 27.3314, 88.6138, "SK-01"),
+    PincodeSpec("737135", "Ranipool", "Gangtok", "Sikkim", 27.2960, 88.5960, "SK-01"),
+    PincodeSpec("737134", "Singtam", "Gangtok", "Sikkim", 27.2350, 88.5010, "SK-02"),
+    PincodeSpec("737132", "Rangpo", "Pakyong", "Sikkim", 27.1770, 88.5290, "SK-02"),
+    PincodeSpec("737126", "Namchi", "Namchi", "Sikkim", 27.1670, 88.3630, "SK-03"),
+    PincodeSpec("737116", "Mangan", "Mangan", "Sikkim", 27.5090, 88.5290, "SK-04"),
+    PincodeSpec("737113", "Pelling", "Gyalshing", "Sikkim", 27.3000, 88.2370, "SK-05"),
+    PincodeSpec("737111", "Gyalshing", "Gyalshing", "Sikkim", 27.2890, 88.2580, "SK-05"),
+    PincodeSpec("737120", "Chungthang", "Mangan", "Sikkim", 27.6020, 88.6420, "SK-06"),
+    PincodeSpec("734101", "Darjeeling", "Darjeeling", "West Bengal", 27.0410, 88.2663, "DJ-01"),
+    PincodeSpec("734203", "Kurseong", "Darjeeling", "West Bengal", 26.8800, 88.2770, "DJ-02"),
+    PincodeSpec("734301", "Kalimpong", "Kalimpong", "West Bengal", 27.0600, 88.4700, "DJ-03"),
+    PincodeSpec("734223", "Tindharia", "Darjeeling", "West Bengal", 26.8520, 88.3270, "DJ-04"),
+    PincodeSpec("734214", "Mirik", "Darjeeling", "West Bengal", 26.8860, 88.1870, "DJ-05"),
+    PincodeSpec("793108", "Sohra", "East Khasi Hills", "Meghalaya", 25.2700, 91.7320, "ML-01"),
+    PincodeSpec("793001", "Shillong", "East Khasi Hills", "Meghalaya", 25.5700, 91.8800, "ML-02"),
+    PincodeSpec("793113", "Mawsynram", "East Khasi Hills", "Meghalaya", 25.2980, 91.5820, "ML-03"),
+    PincodeSpec("794001", "Tura", "West Garo Hills", "Meghalaya", 25.5140, 90.2030, "ML-04"),
+    PincodeSpec("796001", "Aizawl", "Aizawl", "Mizoram", 23.7271, 92.7176, "MZ-01"),
+    PincodeSpec("796701", "Lunglei", "Lunglei", "Mizoram", 22.8800, 92.7330, "MZ-02"),
+    PincodeSpec("796181", "Serchhip", "Serchhip", "Mizoram", 23.3020, 92.8510, "MZ-03"),
+    PincodeSpec("796321", "Champhai", "Champhai", "Mizoram", 23.4560, 93.3290, "MZ-04"),
+    PincodeSpec("788819", "Haflong", "Dima Hasao", "Assam", 25.1650, 93.0170, "AS-01"),
+    PincodeSpec("788931", "Umrangso", "Dima Hasao", "Assam", 25.4600, 92.6600, "AS-02"),
+    PincodeSpec("782460", "Diphu", "Karbi Anglong", "Assam", 25.8400, 93.4300, "AS-03"),
+    PincodeSpec("791111", "Itanagar", "Papum Pare", "Arunachal Pradesh", 27.0844, 93.6053, "AR-01"),
+    PincodeSpec("790104", "Tawang", "Tawang", "Arunachal Pradesh", 27.5860, 91.8590, "AR-02"),
+    PincodeSpec("792110", "Roing", "Lower Dibang Valley", "Arunachal Pradesh", 28.1300, 95.8500, "AR-03"),
+    # Outside the monitored zones, so the "not monitored yet" reply is demoable.
+    PincodeSpec("797001", "Kohima", "Kohima", "Nagaland", 25.6747, 94.1086, None),
+]
+
+# Escalation ladder roster: designations, not people. Contact details are
+# placeholders on reserved demo ranges and never reach a real phone.
+ESCALATION_LEVELS = [
+    (0, "Duty Moderator, District EOC", "District Emergency Operations Centre (24x7)"),
+    (1, "Sub-Divisional Officer (Disaster Management)", "Second responder"),
+    (2, "Deputy Commissioner / District Magistrate", "District head"),
+]

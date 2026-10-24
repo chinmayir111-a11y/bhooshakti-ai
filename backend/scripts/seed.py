@@ -3,18 +3,26 @@
 
     python scripts/seed.py [--reset]
 
-Everything written here is SIMULATED DATA generated from a fixed random seed.
-Place names and approximate coordinates are real; measurements, events,
-sensor readings and populations are synthetic.
+Place names, approximate coordinates and pincodes are real. Weather is REAL
+(Open-Meteo) unless --weather simulated. Zone boundaries, sensors,
+populations and contact rosters are SIMULATED.
 
 Generates:
   * 25 zones across NER as PostGIS polygons
-  * 30 days of hourly rainfall per zone, with a configurable monsoon spike
-  * 30 days of hourly soil moisture, lag-correlated with rainfall
-  * ~120 labelled historical landslide events with features at occurrence
+  * 30 days of hourly rainfall + soil moisture per zone (Open-Meteo)
   * road segments (LineStrings), villages (Points), bridges (Points)
-  * ~40 sensor nodes, a few deliberately FAILED to exercise fallback logic
+  * ~40 simulated sensor nodes, a few deliberately FAILED, plus a node slot
+    for real ESP32 hardware (HW-01) and a keyboard-driven fake (KB-01)
+  * pincodes, a per-district escalation roster and demo SMS subscribers
   * 3 demo logins (authority / field officer / citizen)
+
+Historical landslides are NOT generated any more: real events come from
+`scripts/import_landslides.py` (NASA Global Landslide Catalog). For offline
+development only, `--synthetic` writes the old 120 simulated events, which
+are labelled SIMULATED wherever they appear.
+
+`--reset` keeps the imported real events and their cached ERA5 weather — they
+are slow to download and never change.
 """
 from __future__ import annotations
 
@@ -33,6 +41,9 @@ from app.config import settings  # noqa: E402
 from app.db import Base, engine, session_scope  # noqa: E402
 from app.models import (  # noqa: E402
     Bridge,
+    EscalationContact,
+    Pincode,
+    Subscriber,
     HistoricalLandslide,
     RainfallReading,
     RoadSegment,
@@ -49,6 +60,8 @@ from app.models import (  # noqa: E402
 from app.security import hash_password  # noqa: E402
 from scripts.geodata import (  # noqa: E402
     BRIDGES,
+    ESCALATION_LEVELS,
+    PINCODES,
     LAND_COVER_WEAKNESS,
     LITHOLOGY_WEAKNESS,
     ROADS,
@@ -166,7 +179,10 @@ def reset_schema() -> None:
     print("  dropping and recreating schema ...")
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-    Base.metadata.drop_all(bind=engine)
+    # Real imported events and their ERA5 cache survive a reset.
+    keep = {"historical_events", "historical_weather"}
+    Base.metadata.drop_all(bind=engine,
+                           tables=[t for t in Base.metadata.sorted_tables if t.name not in keep])
     with engine.begin() as conn:
         for enum_name in (
             "role_enum", "severity_enum", "alert_severity_enum", "sensor_status_enum",
@@ -451,6 +467,7 @@ def seed_sensors(db, zones: dict[str, Zone], rng: random.Random) -> tuple[int, i
         lon = spec.lon + dist * math.cos(bearing) / max(math.cos(math.radians(spec.lat)), 0.3)
 
         is_failed = spec.code in failed_targets and counters[spec.code] == 1
+        node_source = "simulated"
         status = SensorStatus.FAILED if is_failed else (
             SensorStatus.MAINTENANCE if rng.random() < 0.05 else SensorStatus.ACTIVE
         )
@@ -469,8 +486,67 @@ def seed_sensors(db, zones: dict[str, Zone], rng: random.Random) -> tuple[int, i
             last_seen=None if status is SensorStatus.FAILED else now - timedelta(minutes=rng.randint(1, 45)),
             note="No telemetry since last monsoon surge — battery/uplink fault."
             if status is SensorStatus.FAILED else "",
+            source=node_source,
         ))
-    return len(allocation), failed
+
+    # Two demo slots on the Tindharia slope. HW-01 is reserved for the real
+    # ESP32 board in hardware/esp32_node/ and only ever shows LIVE when that
+    # board is publishing. KB-01 is the keyboard-driven stand-in
+    # (`make demo-live-sensor`) and is registered as simulated, so it can
+    # never be mistaken for hardware.
+    dj4 = zones["DJ-04"]
+    now = datetime.now(timezone.utc)
+    for node_id, source, note, dlat, dlon in (
+        ("HW-01", "hardware", "ESP32 + MPU6050 + capacitive soil probe (hardware/esp32_node)", 0.004, -0.003),
+        ("KB-01", "simulated", "Keyboard-controlled fake node for demos without hardware", -0.003, 0.004),
+    ):
+        db.add(SensorNode(
+            node_id=node_id, zone_id=dj4.id,
+            geom=f"SRID=4326;{point_to_wkt(dj4.centroid_lat + dlat, dj4.centroid_lon + dlon)}",
+            status=SensorStatus.ACTIVE, sensor_types=["tilt", "soil_moisture", "rainfall"],
+            battery_pct=100.0, installed_at=now, last_seen=None, note=note, source=source,
+        ))
+    return len(allocation) + 2, failed
+
+
+def seed_offline_channels(db, zones: dict[str, Zone]) -> tuple[int, int, int]:
+    """Pincodes, the escalation roster per district, and demo subscribers."""
+    for p in PINCODES:
+        db.add(Pincode(pincode=p.pincode, place=p.place, district=p.district, state=p.state,
+                       lat=p.lat, lon=p.lon,
+                       zone_id=zones[p.zone_code].id if p.zone_code else None))
+
+    authority = db.query(User).filter(User.username == "authority").first()
+    districts = sorted({z.district for z in zones.values()})
+    n_contacts = 0
+    for i, district in enumerate(districts):
+        slug = district.lower().replace(" ", "-")
+        for level, name, designation in ESCALATION_LEVELS:
+            db.add(EscalationContact(
+                district=district, level=level,
+                name=f"{name}, {district}", designation=designation,
+                phone=f"+9190000{i:02d}{level:03d}",
+                email=f"l{level}.{slug}@bhooshakti.local",
+                # The demo authority login is the on-duty moderator everywhere,
+                # so its sign-in sees exactly what level 0 is paged for.
+                user_id=authority.id if (authority and level == 0) else None,
+                on_duty=True,
+            ))
+            n_contacts += 1
+
+    # Demo subscribers on reserved numbers — the SMS/voice channels stay in
+    # stub mode, so these never ring a real phone.
+    subs = [
+        ("+919800000001", "DJ-04", "734223", "ne"),
+        ("+919800000002", "DJ-04", "734223", "hi"),
+        ("+919800000003", "DJ-04", "734223", "en"),
+        ("+919800000004", "SK-02", "737134", "ne"),
+        ("+919800000005", "MZ-01", "796001", "en"),
+    ]
+    for phone, code, pin, lang in subs:
+        db.add(Subscriber(phone=phone, zone_id=zones[code].id, pincode=pin,
+                          language=lang, source="seed"))
+    return len(PINCODES), n_contacts, len(subs)
 
 
 def seed_users(db, zones: dict[str, Zone]) -> list[tuple[str, str]]:
@@ -521,12 +597,14 @@ def main() -> int:
                     default=settings.weather_provider,
                     help="real observed weather, or the synthetic generator")
     ap.add_argument("--seed", type=int, default=settings.seed_random_state)
+    ap.add_argument("--synthetic", action="store_true",
+                    help="also write 120 SIMULATED historical events (offline development only)")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
 
     print("=" * 74)
-    print("BHOOSHAKTI AI — seeding demo database   [ALL DATA SIMULATED]")
+    print("BHOOSHAKTI AI — seeding demo database")
     print("=" * 74)
 
     if args.reset:
@@ -539,12 +617,12 @@ def main() -> int:
             print("\n  Database already contains zones. Re-run with --reset to rebuild.")
             return 1
 
-        print("\n[1/6] zones")
+        print("\n[1/7] zones")
         zones = seed_zones(db, rng)
         print(f"  {len(zones)} PostGIS polygons across "
               f"{len({s.state for s in ZONES})} states/UTs")
 
-        print("\n[2/6] rainfall + soil moisture (30 days hourly)")
+        print("\n[2/7] rainfall + soil moisture (30 days hourly)")
         series = None
         if args.weather == "open-meteo":
             print("  provider: Open-Meteo (real observed weather)")
@@ -555,22 +633,32 @@ def main() -> int:
             print("  provider: synthetic generator [SIMULATED]")
             series = seed_weather(db, zones, rng, monsoon_spike=not args.no_monsoon_spike)
 
-        print("\n[3/6] historical landslide events")
-        n = seed_historical(db, zones, rng, series)
-        print(f"  {n} labelled events, 2018–2025")
+        print("\n[3/7] historical landslide events")
+        if args.synthetic:
+            n = seed_historical(db, zones, rng, series)
+            print(f"  {n} SIMULATED events written (--synthetic, offline development only)")
+        else:
+            real = db.execute(text("SELECT COUNT(*) FROM historical_events")).scalar_one()
+            print(f"  {real} REAL events already imported (kept across --reset)."
+                  + ("" if real else "  Run: python scripts/import_landslides.py"))
 
-        print("\n[4/6] infrastructure")
+        print("\n[4/7] infrastructure")
         roads, villages, bridges = seed_infrastructure(db, rng)
         print(f"  {roads} road segments, {villages} villages, {bridges} bridges")
 
-        print("\n[5/6] sensor nodes")
+        print("\n[5/7] sensor nodes")
         total, failed = seed_sensors(db, zones, rng)
         print(f"  {total} nodes ({failed} FAILED — fallback logic demo)")
 
-        print("\n[6/6] demo users")
+        print("\n[6/7] demo users")
         users = seed_users(db, zones)
         for username, role in users:
             print(f"  {username:<16} {role:<14} password: {settings.demo_password}")
+
+        print("\n[7/7] offline channels")
+        db.flush()
+        pins, contacts, subs = seed_offline_channels(db, zones)
+        print(f"  {pins} pincodes, {contacts} escalation contacts, {subs} demo SMS subscribers")
 
     print("\n" + "=" * 74)
     print("Seed complete.  Next:  python scripts/train.py")

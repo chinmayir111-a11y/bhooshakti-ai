@@ -72,6 +72,11 @@ class Verdict(str, enum.Enum):
     UNCERTAIN = "UNCERTAIN"
 
 
+class AlertTier(str, enum.Enum):
+    ADVISORY = "ADVISORY"
+    WARNING = "WARNING"
+
+
 class DeliveryStatus(str, enum.Enum):
     PENDING = "PENDING"
     SENT = "SENT"
@@ -239,7 +244,8 @@ class WeatherFetch(Base):
 
 
 class HistoricalLandslide(Base):
-    """~120 labelled events with the feature values as of occurrence."""
+    """SYNTHETIC labelled events — only written by `seed.py --synthetic` for
+    offline development. Real events live in `historical_events`."""
 
     __tablename__ = "historical_landslides"
 
@@ -262,6 +268,63 @@ class HistoricalLandslide(Base):
     fatalities: Mapped[int] = mapped_column(Integer, default=0)
     trigger: Mapped[str] = mapped_column(String(64), default="rainfall")
     notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class HistoricalEvent(Base):
+    """A REAL past landslide from a published inventory (NASA GLC, GSI
+    Bhukosh) or a curated press/official record. Never synthetic."""
+
+    __tablename__ = "historical_events"
+    __table_args__ = (UniqueConstraint("source", "source_event_id", name="uq_historical_source_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)          # NASA GLC | GSI Bhukosh | Curated
+    source_event_id: Mapped[str] = mapped_column(String(64))
+    occurred_on: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    time_known: Mapped[bool] = mapped_column(Boolean, default=False)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=True))
+    state: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    location_accuracy: Mapped[str] = mapped_column(String(16), default="")
+    trigger: Mapped[str] = mapped_column(String(32), default="")
+    fatalities: Mapped[int] = mapped_column(Integer, default=0)
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class HistoricalWeather(Base):
+    """ERA5 hourly rainfall + soil moisture around historical events, cached so
+    training and the backtest never re-download. Keyed by the requested point
+    rounded to 0.1°; the grid cell Open-Meteo actually used is stored too."""
+
+    __tablename__ = "historical_weather"
+    __table_args__ = (UniqueConstraint("cell", "ts", name="uq_hist_weather_cell_ts"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cell: Mapped[str] = mapped_column(String(24), index=True)      # "25.3,94.5"
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    rainfall_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vwc_0_7cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grid_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grid_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class ZoneWeatherGrid(Base):
+    """Which model grid cell each zone's weather actually came from — what a
+    judge needs to reproduce our numbers against Open-Meteo directly."""
+
+    __tablename__ = "zone_weather_grid"
+    __table_args__ = (UniqueConstraint("zone_id", "endpoint", name="uq_zone_grid_endpoint"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id", ondelete="CASCADE"))
+    endpoint: Mapped[str] = mapped_column(String(16))              # archive | forecast
+    grid_lat: Mapped[float] = mapped_column(Float)
+    grid_lon: Mapped[float] = mapped_column(Float)
+    grid_elevation_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +386,10 @@ class SensorNode(Base):
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str] = mapped_column(String(255), default="")
+    # simulated | hardware. Only a node registered as hardware may show the
+    # LIVE dot — the dashboard never infers it from traffic alone.
+    source: Mapped[str] = mapped_column(String(16), default="simulated",
+                                        server_default=text("'simulated'"))
 
 
 class SensorReading(Base):
@@ -388,6 +455,20 @@ class Alert(Base):
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     source: Mapped[str] = mapped_column(String(32), default="auto")
 
+    # ADVISORY is machine-issued and unconfirmed; WARNING is human-confirmed or
+    # a model CRITICAL. See app/services/escalation.py.
+    tier: Mapped[str] = mapped_column(String(16), default=AlertTier.WARNING.value,
+                                      server_default=text("'WARNING'"), index=True)
+    # ACTIVE | CONFIRMED | DISMISSED — an advisory is closed one way or the other.
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE",
+                                        server_default=text("'ACTIVE'"))
+    report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("citizen_reports.id", ondelete="SET NULL"), nullable=True, index=True)
+    # A WARNING upgraded from an advisory, or an all-clear following one.
+    parent_alert_id: Mapped[int | None] = mapped_column(
+        ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
+    score_breakdown: Mapped[dict] = mapped_column(JSONB, default=dict)
+
     deliveries: Mapped[list["AlertDelivery"]] = relationship(
         back_populates="alert", cascade="all, delete-orphan", lazy="selectin"
     )
@@ -441,6 +522,75 @@ class CitizenReport(Base):
     moderation_notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+    # Set by the offline queue (PWA / field app) so a replay is stored once.
+    client_uuid: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    # web | pwa | sms | ivr — how the report reached us.
+    channel: Mapped[str] = mapped_column(String(16), default="web", server_default=text("'web'"))
+    voice_note_path: Mapped[str] = mapped_column(String(255), default="", server_default=text("''"))
+
+    # Auto-triage. Score 0-100 with the plain-language reasons behind it.
+    corroboration_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    corroboration_reasons: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # Escalation ladder state. A report is "seen" once any moderator acts on it.
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[str] = mapped_column(String(64), default="", server_default=text("''"))
+    escalation_level: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    advisory_alert_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warning_alert_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class EscalationContact(Base):
+    """Ordered call-out list per district. Level 0 is the on-duty moderator;
+    every 10 unacknowledged minutes the ladder climbs one level."""
+
+    __tablename__ = "escalation_contacts"
+    __table_args__ = (Index("ix_escalation_district_level", "district", "level"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    district: Mapped[str] = mapped_column(String(128), index=True)
+    level: Mapped[int] = mapped_column(Integer, default=0)
+    name: Mapped[str] = mapped_column(String(128))
+    designation: Mapped[str] = mapped_column(String(128), default="")
+    phone: Mapped[str] = mapped_column(String(32), default="")
+    email: Mapped[str] = mapped_column(String(255), default="")
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    on_duty: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Subscriber(Base):
+    """A phone number registered for one zone's alerts — no smartphone needed
+    (SMS JOIN <pincode>, or a missed call from the IVR)."""
+
+    __tablename__ = "subscribers"
+    __table_args__ = (UniqueConstraint("phone", "zone_id", name="uq_subscriber_zone"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    phone: Mapped[str] = mapped_column(String(32), index=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id", ondelete="CASCADE"), index=True)
+    pincode: Mapped[str] = mapped_column(String(8), default="")
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    source: Mapped[str] = mapped_column(String(16), default="sms")   # sms | ivr | web | seed
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Pincode(Base):
+    """Postal code → place → monitored zone, so a keyword SMS can be located
+    without GPS. Seeded for the demo districts only."""
+
+    __tablename__ = "pincodes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pincode: Mapped[str] = mapped_column(String(8), index=True)
+    place: Mapped[str] = mapped_column(String(128), index=True)
+    district: Mapped[str] = mapped_column(String(128))
+    state: Mapped[str] = mapped_column(String(64))
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    zone_id: Mapped[int | None] = mapped_column(ForeignKey("zones.id", ondelete="SET NULL"), nullable=True)
+
 
 class FieldReport(Base):
     __tablename__ = "field_reports"
@@ -487,5 +637,6 @@ __all__ = [
     "WeatherFetch",
     "RoadSegment", "Village", "Bridge", "SensorNode", "SensorReading",
     "ZoneRisk", "Alert", "AlertDelivery", "CitizenReport", "FieldReport",
-    "ResponseAction",
+    "ResponseAction", "AlertTier", "EscalationContact", "Subscriber", "Pincode",
+    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid",
 ]

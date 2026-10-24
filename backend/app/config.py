@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:8081,http://localhost:19006"
 
     # notifications
-    notify_channels: str = "console,websocket,email,sms,push"
+    notify_channels: str = "console,websocket,email,sms,push,voice"
     alert_test_email: str = "abjgd108@gmail.com"
     public_dashboard_url: str = "http://localhost:5173"
 
@@ -61,6 +61,34 @@ class Settings(BaseSettings):
 
     push_provider: str = "stub"
     expo_access_token: str = ""
+
+    # Outbound voice (text-to-speech call). Stub unless a provider key is set.
+    voice_provider: str = "stub"               # stub | exotel | twilio
+    exotel_sid: str = ""
+    exotel_api_key: str = ""
+    exotel_api_token: str = ""
+    exotel_caller_id: str = ""
+    exotel_subdomain: str = "api.exotel.com"
+    # Public base URL the voice provider fetches call scripts from.
+    public_api_url: str = "http://localhost:8000"
+
+    # Where scripts/test_alert_email.py sends the end-to-end test. Falls back
+    # to ALERT_TEST_EMAIL when unset.
+    test_alert_email: str = ""
+
+    # Citizen-report escalation ladder (minutes / score thresholds).
+    escalation_step_minutes: int = 10
+    escalation_advisory_minutes: int = 20
+    advisory_min_score: float = 60.0
+    advisory_immediate_score: float = 85.0
+    escalation_interval_s: int = 60
+    escalation_enabled: bool = True
+
+    # Siren relay: published on every WARNING.
+    mqtt_siren_prefix: str = "bhooshakti/siren"
+
+    # CAP feed identity.
+    cap_sender: str = "bhooshakti-demo@sih2026.local"
 
     # weather (Open-Meteo)
     weather_provider: str = "open-meteo"        # open-meteo | simulated
@@ -110,6 +138,10 @@ class Settings(BaseSettings):
     @property
     def use_real_weather(self) -> bool:
         return self.weather_provider.strip().lower() == "open-meteo"
+
+    @property
+    def e2e_test_email(self) -> str:
+        return (self.test_alert_email or self.alert_test_email).strip()
 
     @property
     def email_configured(self) -> bool:
