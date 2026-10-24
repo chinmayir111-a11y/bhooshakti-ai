@@ -8,7 +8,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
-import { rainColor, type Column, type Layers3D, type Pin, type Pulse, type ReportPoint, type View } from '../components/Map3D'
+import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View } from '../components/Map3D'
 import {
   DeliveryChips, FactorList, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
@@ -32,7 +32,7 @@ function slowConnection(): boolean {
 }
 
 const LAYER_LABELS: Array<[keyof Layers3D, string]> = [
-  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain (24 h)'], ['roads', 'Roads & villages'],
+  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain'], ['roads', 'Roads & villages'],
 ]
 
 function Counter({ value, label, tint, src, srcKind }: { value: number; label: string; tint?: string; src?: string; srcKind?: 'real' | 'live' | 'sim' }) {
@@ -218,6 +218,16 @@ export default function Dashboard() {
   }, [playing, frames])
 
   const liveIdx = useMemo(() => { const i = frames.findIndex((f) => f.forecast); return i < 0 ? frames.length - 1 : Math.max(0, i - 1) }, [frames])
+  // Deep link for demos and screenshots: ?frame=dry | heavy pins the slider to
+  // the driest / wettest observed hour; ?frame=<n> to an index.
+  const frameParam = params.get('frame')
+  useEffect(() => {
+    if (!frameParam || !frames.length) return
+    const observed = frames.map((f, i) => ({ i, total: Object.values(f.zones).reduce((a, b) => a + b, 0), fc: f.forecast })).filter((x) => !x.fc)
+    if (!observed.length) return
+    const pick = frameParam === 'heavy' ? observed.reduce((m, x) => (x.total > m.total ? x : m)) : frameParam === 'dry' ? observed.reduce((m, x) => (x.total < m.total ? x : m)) : { i: Number(frameParam) }
+    if (Number.isFinite(pick.i)) { setPlaying(false); setFrameIdx(pick.i) }
+  }, [frameParam, frames])
   const frame = frames[frameIdx ?? liveIdx]
   const rainByZone = frame?.zones ?? null
 
@@ -258,14 +268,14 @@ export default function Dashboard() {
     return { ...zones, features: zones.features.map((f: any) => ({ ...f, properties: { ...f.properties, rain24: rain24ByZone?.[String(f.properties.id)] ?? null } })) }
   }, [zones, rain24ByZone])
 
-  const columns: Column[] = useMemo(() => {
-    if (!zones?.features || !rain24ByZone) return []
-    return zones.features.map((f: any) => {
-      const mm = rain24ByZone[String(f.properties.id)] ?? 0
-      return { lon: f.properties.centroid[1], lat: f.properties.centroid[0], value: mm, color: rainColor(mm),
-               label: `${f.properties.name}: ${mm.toFixed(0)} mm in 24 h (Open-Meteo)` }
-    }).filter((c: Column) => c.value > 0.5)
-  }, [zones, rain24ByZone])
+  // Rain radar input: this hour's rain per zone (surface) + the 24 h total (chip).
+  const rainPoints: RainPoint[] = useMemo(() => {
+    if (!zones?.features || !rainByZone) return []
+    return zones.features.map((f: any) => ({
+      lat: f.properties.centroid[0], lon: f.properties.centroid[1],
+      mm: rainByZone[String(f.properties.id)] ?? 0, mm24: rain24ByZone?.[String(f.properties.id)] ?? 0,
+    }))
+  }, [zones, rainByZone, rain24ByZone])
 
   const pins: Pin[] = useMemo(() => {
     if (!sensors?.features) return []
@@ -435,7 +445,7 @@ export default function Dashboard() {
           ) : (
             <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
               <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
-                     reports={reportPoints} columns={columns} pins={pins} pulses={pulses} layers={layers}
+                     reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers}
                      selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark}
                      basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal} />
             </Suspense>
@@ -478,8 +488,11 @@ export default function Dashboard() {
             {legendOpen && (
               <div className="legend-body">
                 {SEVERITY_ORDER.slice().reverse().map((sev) => <div className="legend-row" key={sev}><SeverityShape value={sev} size={14} />{sev}</div>)}
-                <div className="legend-row" style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 6 }}>
-                  <span className="sw" style={{ background: 'linear-gradient(90deg,#4A90B8,#E3B23C,#DC2626)' }} /> Rain column: 24 h total {sources && <Src kind="real" label="REAL · Open-Meteo" />}
+                <div className="legend-rain">
+                  <div className="legend-row" style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 6 }}>Rain this hour (radar) {sources && <Src kind="real" label="REAL · Open-Meteo" />}</div>
+                  <div className="ramp" />
+                  <div className="ramp-labels"><span>0</span><span>2</span><span>10</span><span>30</span><span>60+ mm</span></div>
+                  <div className="tiny muted">Chips from zoom 10 show each zone's 24 h total.</div>
                 </div>
                 <div className="legend-row"><span className="sw dot-red" /> Citizen report (number = several)</div>
                 <div className="legend-row"><span className="sw dia mint" /> LIVE hardware sensor</div>

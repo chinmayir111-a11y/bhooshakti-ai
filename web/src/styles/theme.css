@@ -740,3 +740,5 @@ table.grid tr:hover td { background: var(--panel); }
 .toast.fired { border-left-color: #FB923C; animation: toast-in .3s var(--ease), toast-pulse 1.2s ease-in-out 2; }
 @keyframes toast-pulse { 50% { box-shadow: 0 0 0 6px rgba(251,146,60,.25), var(--shadow-lg); } }
 .replay .map-box { background: var(--surface-2); }
+.legend-rain .ramp { height: 10px; border-radius: 5px; margin: 6px 0 2px; background: linear-gradient(90deg, rgba(125,211,252,0) 0%, #7DD3FC 4%, #3B82F6 17%, #8B5CF6 50%, #EC4899 100%); }
+.legend-rain .ramp-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }

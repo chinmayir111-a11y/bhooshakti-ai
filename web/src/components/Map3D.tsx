@@ -11,8 +11,11 @@
  * Our own layers are spliced in under the basemap labels: severity-coloured
  * zones (soft glow on HIGH, pulsing on CRITICAL, name labels from zoom 9),
  * clustered citizen reports, diamond sensors, orange blocked roads with a
- * marker at the break, cut-off villages, and deck.gl rain columns coloured
- * blue → amber → red by 24 h total.
+ * marker at the break, cut-off villages, and a rain radar: a smooth
+ * precipitation surface built from the hourly per-zone rain (Gaussian kernel,
+ * ~8 km) as GeoJSON isobands so it drapes on the terrain, with
+ * "NN mm / 24 h" chips at zone centres from zoom 10. Rain is blue → violet →
+ * magenta only; risk is green → yellow → orange → red only.
  *
  * Only ever imported from the control room and the replay page, so the
  * citizen bundle never pays for it. The 2D fallback is components/MapView.tsx.
@@ -21,11 +24,12 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { type LngLatBoundsLike, type Map as MLMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { ColumnLayer, ScatterplotLayer } from '@deck.gl/layers'
+import { ScatterplotLayer } from '@deck.gl/layers'
 import { prefersReducedMotion } from '../hooks'
 import { SEVERITY_FILL, asSeverity } from './Severity'
 
-export interface Column { lon: number; lat: number; value: number; color?: [number, number, number, number?]; label?: string }
+/** One zone's rain: this hour (drives the radar) and the 24 h total (the chip). */
+export interface RainPoint { lat: number; lon: number; mm: number; mm24?: number }
 export interface Pin { lon: number; lat: number; live?: boolean; failed?: boolean; anomalous?: boolean; label?: string; source?: string }
 export interface Pulse { lon: number; lat: number; at: number; big?: boolean; color?: [number, number, number] }
 export interface ReportPoint { id: number; lat: number; lon: number; label?: string }
@@ -37,7 +41,9 @@ interface Props {
   roads?: any
   villages?: any
   reports?: ReportPoint[]
-  columns?: Column[]
+  rain?: RainPoint[]
+  /** Replay: mm of rain this hour → light falling particles over the event area. */
+  rainParticles?: number
   pins?: Pin[]
   pulses?: Pulse[]
   layers?: Partial<Layers3D>
@@ -50,9 +56,6 @@ interface Props {
   dark?: boolean
   terrain?: boolean
   basemap?: 'map' | 'satellite'
-  /** metres of column height per mm of rain */
-  columnScale?: number
-  columnRadius?: number
   center?: [number, number]
   zoom?: number
   /** Turn slowly after 30 s without input; any touch stops it. */
@@ -83,14 +86,85 @@ const ENGLISH = ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'na
 const HIDE = /poi|airport|place_other|place_suburb|label_other|highway-name-path|highway-name-minor|highway_name_other|road_oneway|building|shield_us|us-interstate|aeroway|pier/
 const MINOR = /minor|path|service|track|pedestrian|_link|railway|rail_/
 
-/** 24 h rain → colour: blue (little) → amber → red (a lot). Shared with the replay page. */
-export function rainColor(mm: number, alpha = 178): [number, number, number, number] {
-  const stops: Array<[number, [number, number, number]]> = [[0, [74, 144, 184]], [40, [227, 178, 60]], [100, [220, 38, 38]]]
+/** Weather-radar ramp: 0 mm clear → 2 light blue → 10 blue → 30 violet → 60+ magenta.
+ *  Blue/violet family only, so it can never be confused with risk colours. */
+export const RAIN_RAMP: Array<[number, [number, number, number]]> = [
+  [0, [125, 211, 252]], [2, [125, 211, 252]], [10, [59, 130, 246]], [30, [139, 92, 246]], [60, [236, 72, 153]],
+]
+export function rainColor(mm: number): [number, number, number, number] {
+  const r = RAIN_RAMP
   let i = 0
-  while (i < stops.length - 2 && mm > stops[i + 1][0]) i++
-  const [a, ca] = stops[i], [b, cb] = stops[i + 1]
+  while (i < r.length - 2 && mm > r[i + 1][0]) i++
+  const [a, ca] = r[i], [b, cb] = r[i + 1]
   const k = Math.max(0, Math.min(1, (mm - a) / (b - a)))
+  const alpha = Math.round(255 * Math.max(0, Math.min(1, mm / 2)))     // fades in over the first 2 mm
   return [Math.round(ca[0] + (cb[0] - ca[0]) * k), Math.round(ca[1] + (cb[1] - ca[1]) * k), Math.round(ca[2] + (cb[2] - ca[2]) * k), alpha]
+}
+const SIGMA_KM = 8
+const LEVELS = [1, 2, 4, 7, 10, 18, 30, 45, 60]
+
+/** The rain field as isoband polygons: a Gaussian-kernel mean of the zone
+ *  values on a 2 km grid, then marching squares at each level, painted in
+ *  ascending order (higher bands cover lower ones). Fill layers drape on the
+ *  terrain; image/canvas sources do not. */
+function buildRadar(pts: RainPoint[], box: [number, number, number, number]): any {
+  const [west, south, east, north] = box
+  const midLat = (south + north) / 2
+  const kx = 111.32 * Math.cos(midLat * Math.PI / 180), ky = 110.57
+  // ~2 km cells for one event, coarser over the whole North-East (keeps it ~150 cells wide).
+  const CELL_KM = Math.max(2, ((east - west) * kx) / 150)
+  const dLon = CELL_KM / kx, dLat = CELL_KM / ky
+  const nx = Math.ceil((east - west) / dLon) + 1, ny = Math.ceil((north - south) / dLat) + 1
+  const sw = new Float32Array(nx * ny), swv = new Float32Array(nx * ny)
+  const reach = Math.ceil((3 * SIGMA_KM) / CELL_KM), s2 = 2 * SIGMA_KM * SIGMA_KM
+  let minI = nx, maxI = -1, minJ = ny, maxJ = -1
+  for (const q of pts) {
+    const ci = Math.round((q.lon - west) / dLon), cj = Math.round((q.lat - south) / dLat)
+    for (let j = Math.max(0, cj - reach); j <= Math.min(ny - 1, cj + reach); j++) {
+      const dy = (south + j * dLat - q.lat) * ky
+      for (let i = Math.max(0, ci - reach); i <= Math.min(nx - 1, ci + reach); i++) {
+        const dx = (west + i * dLon - q.lon) * kx
+        const d2 = dx * dx + dy * dy
+        if (d2 > 9 * SIGMA_KM * SIGMA_KM) continue
+        const w = Math.exp(-d2 / s2)
+        const k = j * nx + i
+        sw[k] += w; swv[k] += w * q.mm
+        if (i < minI) minI = i; if (i > maxI) maxI = i; if (j < minJ) minJ = j; if (j > maxJ) maxJ = j
+      }
+    }
+  }
+  const val = (i: number, j: number) => { const k = j * nx + i; return sw[k] < 0.3 ? 0 : (swv[k] / sw[k]) * Math.min(1, (sw[k] - 0.3) / 0.5) }
+  const features: any[] = []
+  for (let li = 0; li < LEVELS.length; li++) {
+    const level = LEVELS[li], next = LEVELS[li + 1] ?? Infinity
+    const [r, g, b, a] = rainColor(level)
+    const c = `rgba(${r},${g},${b},${(a / 255).toFixed(2)})`
+    for (let j = minJ; j < maxJ; j++) {
+      for (let i = minI; i < maxI; i++) {
+        // Corners counter-clockwise from the south-west; walk the square and
+        // keep corners above the level plus the interpolated edge crossings.
+        const v = [val(i, j), val(i + 1, j), val(i + 1, j + 1), val(i, j + 1)]
+        if (v[0] < level && v[1] < level && v[2] < level && v[3] < level) continue
+        // Fully inside the next band up: that band paints it, so bands don't stack.
+        if (v[0] >= next && v[1] >= next && v[2] >= next && v[3] >= next) continue
+        const px = [west + i * dLon, west + (i + 1) * dLon, west + (i + 1) * dLon, west + i * dLon]
+        const py = [south + j * dLat, south + j * dLat, south + (j + 1) * dLat, south + (j + 1) * dLat]
+        const ring: number[][] = []
+        for (let k = 0; k < 4; k++) {
+          const n = (k + 1) % 4
+          if (v[k] >= level) ring.push([px[k], py[k]])
+          if ((v[k] >= level) !== (v[n] >= level)) {
+            const t = (level - v[k]) / (v[n] - v[k])
+            ring.push([px[k] + (px[n] - px[k]) * t, py[k] + (py[n] - py[k]) * t])
+          }
+        }
+        if (ring.length < 3) continue
+        ring.push(ring[0])
+        features.push({ type: 'Feature', properties: { c, level }, geometry: { type: 'Polygon', coordinates: [ring] } })
+      }
+    }
+  }
+  return { type: 'FeatureCollection', features }
 }
 
 const styleCache = new Map<string, Promise<any>>()
@@ -148,6 +222,8 @@ function sky(dark: boolean): any {
 
 function ourSources(): Record<string, any> {
   return {
+    rain: { type: 'geojson', data: EMPTY },
+    'rain-chips': { type: 'geojson', data: EMPTY },
     sat: { type: 'raster', tiles: SAT_TILES, tileSize: 256, attribution: SAT_ATTRIB, maxzoom: 18 },
     dem: { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 15, attribution: TERRAIN_ATTRIB },
     'dem-hs': { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 15 },
@@ -173,6 +249,12 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
       paint: { 'hillshade-exaggeration': satellite ? 0.12 : 0.25, 'hillshade-shadow-color': '#0A1210',
                'hillshade-highlight-color': dark ? '#243029' : '#FFFFFF', 'hillshade-accent-color': dark ? '#0A1210' : '#6A7A6E' } },
     { id: 'dim', type: 'fill', source: 'dim', paint: { 'fill-color': dark ? '#0F1A17' : '#F4F1EA', 'fill-opacity': 0.55 } },
+    { id: 'rain-radar', type: 'fill', source: 'rain', paint: { 'fill-color': ['get', 'c'], 'fill-antialias': false,
+               // Light rain stays a faint wash; heavy cores read at full strength.
+               'fill-opacity': ['interpolate', ['linear'], ['get', 'level'], 1, 0.28, 10, 0.5, 30, 0.6] } },
+    // Knocks the radar out inside zones so red over blue never turns pink
+    // (pink is the 60+ mm rain colour); the chip still gives that zone's rain.
+    { id: 'zone-knockout', type: 'fill', source: 'zones', paint: { 'fill-color': dark ? '#0F1A17' : '#F4F1EA', 'fill-opacity': 0.8, 'fill-antialias': false } },
     { id: 'zone-fill', type: 'fill', source: 'zones',
       paint: { 'fill-color': ['to-color', ['get', 'color']],
                'fill-opacity': ['+', [...SEV, 'LOW', 0.10, 'MODERATE', 0.25, 'HIGH', 0.40, 'CRITICAL', 0.55, 0.1], ['case', hover, 0.15, 0]] } },
@@ -206,11 +288,18 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
 }
 
 /** Base style with our sources, our layers under its labels, and sky. */
+// Above every base layer: with terrain, base lines after the first symbol
+// layer would otherwise draw across the chips.
+const RAIN_CHIPS = { id: 'rain-chips', type: 'symbol', source: 'rain-chips', minzoom: 10,
+  layout: { 'icon-image': ['get', 'chip'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 4, 1, 2], 'icon-allow-overlap': true,
+            'text-field': ['get', 'label'], 'text-font': FONT, 'text-size': 11.5, 'text-anchor': 'center', 'text-allow-overlap': true, 'text-ignore-placement': true },
+  paint: { 'text-color': '#FFFFFF', 'text-halo-color': 'rgba(15,26,23,.55)', 'text-halo-width': 0.8 } }
+
 function compose(base: any, satellite: boolean, dark: boolean): any {
   const layers: any[] = base.layers ?? []
   let cut = layers.findIndex((l) => l.type === 'symbol')
   if (cut < 0) cut = layers.length
-  return { ...base, sources: { ...base.sources, ...ourSources() }, layers: [...layers.slice(0, cut), ...ourLayers(satellite, dark), ...layers.slice(cut)], sky: sky(dark) }
+  return { ...base, sources: { ...base.sources, ...ourSources() }, layers: [...layers.slice(0, cut), ...ourLayers(satellite, dark), ...layers.slice(cut), RAIN_CHIPS], sky: sky(dark) }
 }
 
 /** Marker images drawn on a canvas: no sprite sheet to host, re-added after every style swap. */
@@ -253,7 +342,20 @@ function addIcons(m: MLMap) {
     c.fillStyle = fill; c.fill(); c.lineWidth = 1.5; c.strokeStyle = stroke; c.stroke()
   }
   for (const [name, img] of Object.entries(icons)) if (!m.hasImage(name)) m.addImage(name, img, { pixelRatio: 1 })
+  // Rain chips: a stretchable rounded pill with a raindrop in its fixed left part.
+  const chip = (fill: string) => {
+    const cv = document.createElement('canvas'); cv.width = 64; cv.height = 28
+    const c = cv.getContext('2d')!
+    c.beginPath(); c.roundRect(0.5, 0.5, 63, 27, 13.5); c.fillStyle = fill; c.fill()
+    c.lineWidth = 1; c.strokeStyle = 'rgba(15,26,23,.6)'; c.stroke()
+    c.beginPath(); c.moveTo(14, 6); c.bezierCurveTo(14, 6, 7.5, 14, 7.5, 17.5); c.arc(14, 17.5, 6.5, Math.PI, 0, true); c.closePath()
+    c.fillStyle = '#FFFFFF'; c.fill()
+    return c.getImageData(0, 0, 64, 28)
+  }
+  const chips: Record<string, string> = { 'chip-0': '#3A4842', 'chip-1': '#5BAEE0', 'chip-2': '#3B82F6', 'chip-3': '#8B5CF6', 'chip-4': '#EC4899' }
+  for (const [name, fill] of Object.entries(chips)) if (!m.hasImage(name)) m.addImage(name, chip(fill), { pixelRatio: 1, stretchX: [[30, 50]], content: [26, 5, 56, 23] })
 }
+function chipFor(mm24: number): string { return mm24 < 1 ? 'chip-0' : mm24 < 10 ? 'chip-1' : mm24 < 30 ? 'chip-2' : mm24 < 60 ? 'chip-3' : 'chip-4' }
 
 function bbox(fc: any): [number, number, number, number] | null {
   let minX = 180, minY = 90, maxX = -180, maxY = -90, any = false
@@ -287,7 +389,11 @@ export default function Map3D(p: Props) {
   const touring = useRef(false)
   const styleSeq = useRef(0)
   const fitted = useRef(false)
+  const pendingFly = useRef<Props['flyTo']>(null)
   const hovered = useRef<number | null>(null)
+  const radarPrev = useRef<Map<string, number>>(new Map())
+  const radarAnim = useRef(0)
+  const particles = useRef<Array<{ dx: number; dy: number; ph: number }>>([])
 
   async function loadStyle() {
     const m = map.current
@@ -340,7 +446,8 @@ export default function Map3D(p: Props) {
       if (props.current.terrain !== false) m.setTerrain({ source: 'dem', exaggeration: EXAGGERATION })
       prevColors.current = {}
       syncAll()
-      if (!fitted.current && !props.current.orbit && !props.current.center) { defaultView(false); fitted.current = true }
+      if (pendingFly.current) { flyNow(pendingFly.current); pendingFly.current = null }
+      else if (!fitted.current && !props.current.orbit && !props.current.center) { defaultView(false); fitted.current = true }
     })
     m.on('click', 'zone-fill', (e) => {
       const f = e.features?.[0]
@@ -384,6 +491,7 @@ export default function Map3D(p: Props) {
     ro.observe(el)
     return () => {
       cancelAnimationFrame(raf.current)
+      cancelAnimationFrame(radarAnim.current)
       ro.disconnect()
       for (const ev of ['pointerdown', 'wheel', 'keydown', 'touchstart'] as const) el.removeEventListener(ev, touched)
       m.remove()
@@ -459,6 +567,37 @@ export default function Map3D(p: Props) {
       type: 'Feature', properties: { id: r.id, label: r.label }, geometry: { type: 'Point', coordinates: [r.lon, r.lat] } })) })
   }
 
+  // Rain radar: isobands over a box around the points, tweened from the
+  // previous hour's values; chips at the points with the 24 h total.
+  function syncRain(animate = true) {
+    const m = map.current
+    if (!m || !ready.current) return
+    const pts = props.current.rain ?? []
+    const src = m.getSource('rain') as any
+    const chipsSrc = m.getSource('rain-chips') as any
+    if (!src) return
+    cancelAnimationFrame(radarAnim.current)
+    if (!pts.length) { src.setData(EMPTY); chipsSrc?.setData(EMPTY); return }
+    const lons = pts.map((q) => q.lon), lats = pts.map((q) => q.lat)
+    const pad = 0.3
+    const box: [number, number, number, number] = [Math.min(...lons) - pad, Math.min(...lats) - pad, Math.max(...lons) + pad, Math.max(...lats) + pad]
+    chipsSrc?.setData({ type: 'FeatureCollection', features: pts.filter((q) => (q.mm24 ?? 0) >= 1).map((q) => ({
+      type: 'Feature', properties: { label: `${(q.mm24 ?? 0).toFixed(0)} mm / 24 h`, chip: chipFor(q.mm24 ?? 0) }, geometry: { type: 'Point', coordinates: [q.lon, q.lat] } })) })
+    const key = (q: RainPoint) => `${q.lat.toFixed(4)},${q.lon.toFixed(4)}`
+    const from = pts.map((q) => radarPrev.current.get(key(q)) ?? 0)
+    radarPrev.current = new Map(pts.map((q) => [key(q), q.mm]))
+    const draw = (k: number) => src.setData(buildRadar(pts.map((q, i) => ({ ...q, mm: from[i] + (q.mm - from[i]) * k })), box))
+    if (!animate || prefersReducedMotion() || from.every((f, i) => Math.abs(f - pts[i].mm) < 0.05)) { draw(1); return }
+    const t0 = performance.now(), ms = 520
+    let last = 0
+    const step = () => {
+      const now = performance.now(), k = Math.min(1, (now - t0) / ms)
+      if (now - last > 130 || k >= 1) { last = now; draw(1 - Math.pow(1 - k, 2)) }
+      if (k < 1) radarAnim.current = requestAnimationFrame(step)
+    }
+    radarAnim.current = requestAnimationFrame(step)
+  }
+
   function syncVisibility() {
     const m = map.current
     if (!m || !ready.current) return
@@ -467,24 +606,31 @@ export default function Map3D(p: Props) {
     vis(['zone-fill', 'zone-glow-high', 'zone-glow-critical', 'zone-line', 'zone-labels'], L.zones)
     vis(['reports', 'reports-clusters', 'reports-count'], L.reports)
     vis(['sensors'], L.sensors)
+    vis(['rain-radar', 'rain-chips'], L.rain)
+    vis(['zone-knockout'], L.rain && L.zones)
     vis(['roads', 'road-blocks', 'villages'], L.roads)
   }
 
   function deckLayers(now: number) {
-    const { columns = [], pulses = [], columnScale = 40, columnRadius = 1500 } = props.current
-    const L = { rain: true, reports: true, ...(props.current.layers ?? {}) }
+    const { pulses = [], rainParticles = 0, orbit } = props.current
+    const L = { reports: true, ...(props.current.layers ?? {}) }
     const m = map.current
     const elev = (lon: number, lat: number) => { try { return (m?.queryTerrainElevation([lon, lat]) ?? 0) || 0 } catch { return 0 } }
     const layers: any[] = []
-    if (L.rain && columns.length) {
-      layers.push(new ColumnLayer({
-        id: 'rain-columns', data: columns, diskResolution: 16, radius: columnRadius, extruded: true, elevationScale: columnScale, pickable: true,
-        getPosition: (d: Column) => [d.lon, d.lat, elev(d.lon, d.lat)],
-        getElevation: (d: Column) => Math.max(0.05, d.value),
-        getFillColor: (d: Column) => (d.color as any) ?? rainColor(d.value),
-        getLineColor: [255, 255, 255, 60], lineWidthMinPixels: 1,
-        transitions: { getElevation: 500, getFillColor: 500 },
-        updateTriggers: { getPosition: [props.current.terrain], getFillColor: columns.map((c) => c.value).join() },
+    // Replay: light rain over the event area, density from this hour's rain.
+    const want = orbit && rainParticles > 0.2 ? Math.min(220, Math.round(rainParticles * 14) + 10) : 0
+    if (particles.current.length !== want) {
+      particles.current = Array.from({ length: want }, (_, i) => ({ dx: (Math.sin(i * 12.9898) * 43758.5453 % 1) * 0.06 - 0.03, dy: (Math.cos(i * 78.233) * 12345.678 % 1) * 0.06 - 0.03, ph: (i * 0.37) % 1 }))
+    }
+    if (want && orbit) {
+      const fall = 0.025
+      layers.push(new ScatterplotLayer({
+        id: 'rain-particles', data: particles.current, radiusUnits: 'pixels', getRadius: 1.4, stroked: false,
+        getPosition: (q: { dx: number; dy: number; ph: number }) => {
+          const t = ((now / 1400) + q.ph) % 1
+          return [orbit.lon + q.dx - t * 0.004, orbit.lat + q.dy + (0.5 - t) * fall, elev(orbit.lon + q.dx, orbit.lat + q.dy) + 1200 - t * 1400]
+        },
+        getFillColor: [191, 219, 254, 170], updateTriggers: { getPosition: now },
       }))
     }
     // A new report ripples out once; the replay's landslide moment keeps pulsing.
@@ -516,7 +662,7 @@ export default function Map3D(p: Props) {
 
   function syncAll() {
     if (!map.current || !ready.current) return
-    syncZones(); syncRoads(); syncPoints(); syncVisibility(); syncDeck()
+    syncZones(); syncRoads(); syncPoints(); syncRain(false); syncVisibility(); syncDeck()
   }
 
   // Animation loop: CRITICAL glow pulse, ripples, orbit, idle rotation.
@@ -527,8 +673,8 @@ export default function Map3D(p: Props) {
       const m = map.current
       if (!m) return
       const now = performance.now()
-      const { pulses = [], orbit, orbitActive, idleRotate } = props.current
-      const hasPulse = pulses.some((q) => now - q.at < 20000)
+      const { pulses = [], orbit, orbitActive, idleRotate, rainParticles = 0 } = props.current
+      const hasPulse = pulses.some((q) => now - q.at < 20000) || (!!orbit && rainParticles > 0.2)
       if (!reduced && ready.current) {
         try { m.setPaintProperty('zone-glow-critical', 'line-opacity', 0.3 + 0.35 * (0.5 + 0.5 * Math.sin(now / 600))) } catch { /* not ready */ }
         if (orbit && orbitActive) { orbitBearing.current = (orbitBearing.current + 0.05) % 360; m.setBearing(orbitBearing.current) }
@@ -544,7 +690,8 @@ export default function Map3D(p: Props) {
   useEffect(() => { syncRoads() }, [p.roads])                             // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports])      // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncVisibility(); syncDeck() }, [p.layers?.zones, p.layers?.reports, p.layers?.sensors, p.layers?.rain, p.layers?.roads])  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (ready.current) syncDeck() }, [p.columns, p.pulses, p.columnScale])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (ready.current) syncDeck() }, [p.pulses, p.rainParticles])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { syncRain() }, [p.rain])                                         // eslint-disable-line react-hooks/exhaustive-deps
 
   const firstDark = useRef(true)
   useEffect(() => { if (firstDark.current) { firstDark.current = false; return } loadStyle() }, [p.dark])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -565,9 +712,16 @@ export default function Map3D(p: Props) {
   useEffect(() => {
     const m = map.current
     if (!m || !p.flyTo) return
-    lastInput.current = performance.now()
-    m.flyTo({ center: [p.flyTo.lon, p.flyTo.lat], zoom: p.flyTo.zoom ?? 11, pitch: 58, bearing: -20, duration: prefersReducedMotion() ? 0 : 1800, essential: true })
+    fitted.current = true                       // a deep link beats the default fit
+    // Before the style has loaded a flight gets cut short; run it on load.
+    if (!ready.current) { pendingFly.current = p.flyTo; return }
+    flyNow(p.flyTo)
   }, [p.flyTo])
+
+  function flyNow(f: NonNullable<Props['flyTo']>) {
+    lastInput.current = performance.now()
+    map.current?.flyTo({ center: [f.lon, f.lat], zoom: f.zoom ?? 11, pitch: 58, bearing: -20, duration: prefersReducedMotion() ? 0 : 1800, essential: true })
+  }
 
   const firstReset = useRef(true)
   useEffect(() => { if (firstReset.current) { firstReset.current = false; return } lastInput.current = performance.now(); defaultView(true) }, [p.resetSignal])  // eslint-disable-line react-hooks/exhaustive-deps

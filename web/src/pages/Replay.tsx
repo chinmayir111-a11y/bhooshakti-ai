@@ -10,7 +10,7 @@ import { SEVERITY_FILL, SeverityChip } from '../components/Severity'
 import { SettingsMenu } from '../components/common'
 import { prefersReducedMotion, useLocalFlag } from '../hooks'
 import { IconAlert, IconCheck, IconExternal, IconPause, IconPlay } from '../components/Pictograms'
-import { rainColor, type Column, type Pulse } from '../components/Map3D'
+import type { Pulse, RainPoint } from '../components/Map3D'
 import { ControlCtx, useControl } from '../control/context'
 import '../styles/theme.css'
 
@@ -131,6 +131,14 @@ function ReplayPage() {
       .catch((e) => setError(e?.message ?? 'Could not load this replay'))
   }, [selected, window_])
 
+  // Deep link: ?at=<ISO time> pauses the replay on that hour (demos, screenshots).
+  useEffect(() => {
+    const at = new URLSearchParams(window.location.search).get('at')
+    if (!at || !tl) return
+    const i = tl.hours.findIndex((x) => x.ts >= at)
+    if (i >= 0) { setPlaying(false); setIdx(i) }
+  }, [tl])
+
   useEffect(() => {
     if (!playing || !tl) return
     const ms = prefersReducedMotion() ? 600 : 520 / speed
@@ -154,8 +162,7 @@ function ReplayPage() {
   const firedReached = !!(tl && h && tl.verdict.first_alert && h.ts >= tl.verdict.first_alert)
   if (refReached && tl && !shock.current.length) shock.current = [{ lat: tl.event.lat, lon: tl.event.lon, at: performance.now(), big: true }]
 
-  const columns: Column[] = tl && h ? [{ lon: tl.event.lon, lat: tl.event.lat, value: h.rainfall_24h,
-    color: rainColor(h.rainfall_24h, 170), label: `${h.rainfall_24h.toFixed(0)} mm in the 24 h to ${fmt(h.ts)} (ERA5)` }] : []
+  const rainPoints: RainPoint[] = tl && h ? [{ lon: tl.event.lon, lat: tl.event.lat, mm: h.rain_mm, mm24: h.rainfall_24h }] : []
 
   // The moment the line crosses HIGH while playing: one animated toast.
   const firedShown = useRef(false)
@@ -268,8 +275,8 @@ function ReplayPage() {
                     {show3d ? (
                       <div className="map-box">
                         <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} orbitActive={playing} columns={columns} pulses={refReached ? shock.current : []}
-                                 columnScale={140} columnRadius={500} terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2} dark={dark}
+                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} orbitActive={playing} rain={rainPoints} rainParticles={playing ? h.rain_mm : 0} pulses={refReached ? shock.current : []}
+                                 terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2} dark={dark}
                                  basemap={satellite ? 'satellite' : 'map'} />
                         </Suspense>
                         <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5 }} className="row">
@@ -304,7 +311,7 @@ function ReplayPage() {
                       {ev.location_accuracy && <> · location ±{ev.location_accuracy}</>}<br />
                       {sources ? <span className="provbadge real">REAL · {ev.source}</span> : <span className="tiny muted">Source: {ev.source}</span>}{' '}
                       {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer" className="verify-link">source record <IconExternal size={12} /></a>}
-                      <br /><span className="muted">Weather: {tl.provenance.weather}, grid cell {tl.provenance.grid.lat?.toFixed?.(2)}, {tl.provenance.grid.lon?.toFixed?.(2)}. {tl.provenance.forecast_input}. Map: AWS terrain; the column is 24 h rain.</span>
+                      <br /><span className="muted">Weather: {tl.provenance.weather}, grid cell {tl.provenance.grid.lat?.toFixed?.(2)}, {tl.provenance.grid.lon?.toFixed?.(2)}. {tl.provenance.forecast_input}. Map: AWS terrain; the blue–violet radar is this hour's rain, the chip its 24 h total.</span>
                     </div>
                   </div>
                 </div>
