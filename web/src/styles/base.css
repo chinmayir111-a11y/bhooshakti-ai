@@ -1,0 +1,130 @@
+/* ==========================================================================
+   BHOOSHAKTI AI — design tokens shared by the citizen app and the control
+   room. Deep teal + warm earth (hills and soil) on a soft off-white.
+
+   Severity is readable without reading AND without colour vision:
+     LOW       green  #22C55E  ✓  circle
+     MODERATE  yellow #FACC15  !  triangle
+     HIGH      orange #F97316  ⚠  diamond
+     CRITICAL  red    #DC2626  ✕  octagon, pulsing
+   Every severity mark carries its icon and shape (components/Severity.tsx);
+   the colour is the third cue, never the only one.
+
+   Text colours below are checked for WCAG AA (>= 4.5:1) on their surfaces.
+   ========================================================================== */
+
+:root {
+  --brand:        #0F766E;   /* 5.5:1 on white */
+  --brand-ink:    #115E59;
+  --brand-soft:   #CCEBE6;
+  --earth:        #B45309;   /* 5.0:1 on white */
+  --earth-soft:   #FBE7D2;
+  --on-brand:     #FFFFFF;
+
+  --bg:           #F8FAF7;
+  --surface:      #FFFFFF;
+  --surface-2:    #F1F5F0;
+  --surface-3:    #E6EDE5;
+  --line:         #E2E8E0;
+  --line-strong:  #C9D3C7;
+  --text:         #1C2B27;   /* 14:1 */
+  --text-muted:   #4B5D57;   /* 6.9:1 */
+  --text-faint:   #63746E;   /* 4.9:1 */
+
+  --sev-low:      #22C55E;  --sev-low-fg:      #052E16;
+  --sev-moderate: #FACC15;  --sev-moderate-fg: #422006;
+  --sev-high:     #F97316;  --sev-high-fg:     #431407;
+  --sev-critical: #DC2626;  --sev-critical-fg: #FFFFFF;
+  /* Darker versions for text and thin strokes on white. */
+  --sev-low-ink:      #15803D;
+  --sev-moderate-ink: #854D0E;
+  --sev-high-ink:     #C2410C;
+  --sev-critical-ink: #B91C1C;
+
+  --radius:    16px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 50, 45, .06), 0 1px 1px rgba(15, 50, 45, .04);
+  --shadow-md: 0 4px 14px rgba(15, 50, 45, .08), 0 1px 3px rgba(15, 50, 45, .06);
+  --shadow-lg: 0 18px 40px rgba(15, 50, 45, .16), 0 4px 10px rgba(15, 50, 45, .08);
+
+  --font: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Noto Sans Devanagari", "Noto Sans Bengali", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+
+  color-scheme: light;
+}
+
+/* Full dark mode — the control room runs at night. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #2DD4BF; --brand-ink: #5EEAD4; --brand-soft: #134E48; --on-brand: #042F2E;
+    --earth: #F59E0B; --earth-soft: #3B2A12;
+    --bg: #0A1312; --surface: #111D1B; --surface-2: #162624; --surface-3: #1D312E;
+    --line: #223834; --line-strong: #2E4A45;
+    --text: #E7F0EC; --text-muted: #A9BEB7; --text-faint: #8DA49C;
+    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FDE047; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 4px 16px rgba(0,0,0,.45);
+    --shadow-lg: 0 18px 44px rgba(0,0,0,.55);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --brand: #2DD4BF; --brand-ink: #5EEAD4; --brand-soft: #134E48; --on-brand: #042F2E;
+  --earth: #F59E0B; --earth-soft: #3B2A12;
+  --bg: #0A1312; --surface: #111D1B; --surface-2: #162624; --surface-3: #1D312E;
+  --line: #223834; --line-strong: #2E4A45;
+  --text: #E7F0EC; --text-muted: #A9BEB7; --text-faint: #8DA49C;
+  --sev-low-ink: #4ADE80; --sev-moderate-ink: #FDE047; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 4px 16px rgba(0,0,0,.45);
+  --shadow-lg: 0 18px 44px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+/* ----------------------------------------------------------- severity mark */
+.sevmark { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: .06em; }
+.sevmark svg { flex: 0 0 auto; }
+.sevmark.CRITICAL svg { animation: sev-pulse 1.4s var(--ease) infinite; transform-origin: center; }
+@keyframes sev-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(220,38,38,0)); }
+  50% { transform: scale(1.12); filter: drop-shadow(0 0 6px rgba(220,38,38,.65)); }
+}
+
+.provbadge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap; vertical-align: middle;
+}
+.provbadge.real { background: var(--brand-soft); color: var(--brand-ink); }
+.provbadge.live { background: #DCFCE7; color: #14532D; }
+.provbadge.sim  { background: var(--earth-soft); color: var(--earth); }
+:root[data-theme="dark"] .provbadge.live { background: #14532D; color: #BBF7D0; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%; animation: shimmer 1.3s linear infinite; border-radius: 8px;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}
