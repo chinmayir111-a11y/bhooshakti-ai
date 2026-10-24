@@ -641,8 +641,8 @@ table.grid tr:hover td { background: var(--panel); }
 }
 .more-toggle:hover { background: var(--surface-3); }
 .todo { margin: 8px 0 0; font-size: 14px; line-height: 1.5; padding: 10px 12px; border-radius: 10px; border-left: 4px solid; background: var(--surface-2); }
-.todo.sev-LOW { border-color: var(--sev-low); } .todo.sev-MODERATE { border-color: var(--sev-moderate); }
-.todo.sev-HIGH { border-color: var(--sev-high); } .todo.sev-CRITICAL { border-color: var(--sev-critical); }
+.todo.lv-LOW { border-color: var(--sev-low); } .todo.lv-MODERATE { border-color: var(--sev-moderate); }
+.todo.lv-HIGH { border-color: var(--sev-high); } .todo.lv-CRITICAL { border-color: var(--sev-critical); }
 
 /* ---- Replay: play first, numbers after */
 .replay-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

@@ -178,7 +178,7 @@ export function HillsHeader({ className }: { className?: string }) {
       <path d="M232 92c22-8 42-13 64-14M226 100c26-9 50-14 76-14 22 0 44 5 62 11M224 108c30-8 58-12 86-11 26 1 48 6 70 13M228 116c32-6 62-8 92-6 22 2 44 6 62 11" {...ink} opacity=".45" />
       <path d="M40 104c18-6 36-10 54-11M30 112c24-7 48-10 72-10 14 0 28 2 40 5" {...ink} opacity=".4" />
       {/* hamlet on the ridge */}
-      <g transform="translate(286 63)">
+      <g transform="translate(228 88)">
         <path d="M0 14V7l6-6 6 6v7z" fill="#F4F1EA" />
         <path d="M-1.5 7.5L6 0l7.5 7.5" fill="none" stroke="#B4532A" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
         <rect x="4.6" y="9" width="2.8" height="5" fill="#3E4C59" />
@@ -190,8 +190,8 @@ export function HillsHeader({ className }: { className?: string }) {
       </g>
       {/* a few trees */}
       <g fill="#24532D">
-        <path d="M262 80c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M272 78c-2-4 0-9 2-11 2 2 5 7 2 11z" />
-        <path d="M342 76c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M110 84c-2-4 0-9 2-11 2 2 5 7 2 11z" />
+        <path d="M206 98c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M216 100c-2-4 0-9 2-11 2 2 5 7 2 11z" />
+        <path d="M290 98c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M110 84c-2-4 0-9 2-11 2 2 5 7 2 11z" />
       </g>
       {/* front slope: terraced tea rows over red soil */}
       <path d="M-4 126c50-10 104-16 160-14 60 2 110 12 168 8 30-2 56-6 80-10V140H-4z" fill="#24532D" />

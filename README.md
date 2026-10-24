@@ -164,8 +164,9 @@ seed + train; the rest is downloading dependencies).
 ### Everyday commands
 
 ```bash
-make doctor    # what is installed, what is missing, what still needs doing
-make test      # all 74 tests
+make doctor      # what is installed, what is missing, what still needs doing
+make demo-check  # green/red list before judging: API, DB, model, MQTT, Open-Meteo, map tiles, SMTP
+make test        # all backend + mobile tests (139 backend)
 make weather   # refresh the cached Open-Meteo data
 make reset     # rebuild data and retrain from scratch
 make help      # every available command

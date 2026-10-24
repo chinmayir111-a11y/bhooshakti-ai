@@ -570,7 +570,7 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore }: {
             </div>
             <div className="drawer-section">
               <span className="label">What to do</span>
-              <p className={`todo sev-${sev}`}>{WHAT_TO_DO[sev]}</p>
+              <p className={`todo lv-${sev}`}>{WHAT_TO_DO[sev]}</p>
               <p className="tiny muted" style={{ margin: '8px 0 0' }}>Decision support, not a guaranteed prediction. Model {r.model_version}.</p>
             </div>
           </>
