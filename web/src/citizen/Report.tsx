@@ -48,6 +48,9 @@ export default function CitizenReport() {
   const [pos, setPos] = useState<Pos | null>(null)
   const [locState, setLocState] = useState<'idle' | 'finding' | 'ok' | 'failed'>('idle')
   const [geo, setGeo] = useState<any>(null)
+  const [pin, setPin] = useState('')
+  const [pinBusy, setPinBusy] = useState(false)
+  const [byPin, setByPin] = useState(false)
   const [issue, setIssue] = useState<typeof ISSUES[number]>('landslide')
   const [voice, setVoice] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
@@ -72,9 +75,26 @@ export default function CitizenReport() {
   }
   useEffect(locate, [])
   useEffect(() => {
-    if (!pos || !online) return
+    if (!pos || !online || byPin) return
     api.geoCheck(pos.lat, pos.lon).then(setGeo).catch(() => setGeo(null))
-  }, [pos, online])
+  }, [pos, online, byPin])
+
+  // No GPS (laptop, permission denied, indoors): a 6-digit pincode places the
+  // report at that post office, which is how the SMS channel locates it too.
+  async function locateByPin(e: React.FormEvent) {
+    e.preventDefault()
+    if (!/^\d{6}$/.test(pin)) return
+    setPinBusy(true); setError('')
+    try {
+      const r = await api.pincodeRisk(pin, lang)
+      if (r.lat == null || r.lon == null) throw new Error()
+      setPos({ lat: r.lat, lon: r.lon, accuracy: 0 })
+      setGeo({ zone_name: r.zone_name ?? r.place, nearest_pincode: pin, geo_valid: r.inside_zone })
+      setByPin(true); setLocState('ok')
+    } catch {
+      setError(`${t('safe_pincode')}: ${pin} — ${t('safe_unknown')}`)
+    } finally { setPinBusy(false) }
+  }
 
   async function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -175,10 +195,18 @@ export default function CitizenReport() {
           <PictoPin size={44} style={{ color: locState === 'ok' ? 'var(--sev-low-ink)' : 'var(--text-faint)' }} />
           <div style={{ fontSize: 15, color: 'var(--text-muted)' }}>
             {locState === 'finding' && <span className="skeleton" style={{ display: 'inline-block', width: 160, height: 16 }} />}
-            {locState === 'ok' && pos && <>{geo?.zone_name ?? `${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`}<br /><span style={{ fontSize: 13 }}>± {Math.round(pos.accuracy)} m</span></>}
+            {locState === 'ok' && pos && <>{geo?.zone_name ?? `${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`}<br /><span style={{ fontSize: 13 }}>{byPin ? `PIN ${pin}` : `± ${Math.round(pos.accuracy)} m`}</span></>}
             {locState === 'failed' && <>{t('report_location_failed')}<br /><button className="cz-linkbtn" style={{ marginTop: 8, minHeight: 44 }} onClick={locate}>{t('report_retry_location')}</button></>}
           </div>
         </div>
+        <form onSubmit={locateByPin} style={{ marginTop: 12 }}>
+          <label style={{ display: 'block', fontSize: 15, color: 'var(--text-muted)', marginBottom: 6 }} htmlFor="rpin">{t('safe_pincode')}</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input id="rpin" className="cz-input" inputMode="numeric" pattern="\d{6}" maxLength={6} value={pin}
+                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder="734223" />
+            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit" disabled={pinBusy || pin.length !== 6}>→</button>
+          </div>
+        </form>
       </div>
 
       {/* 3 what do you see — pictograms, optional */}

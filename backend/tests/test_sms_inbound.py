@@ -82,6 +82,14 @@ def test_geo_check_offers_the_nearest_pincode_for_the_sms_fallback(client):
     assert far["nearest_pincode"] is None
 
 
+@requires_db
+def test_public_pincode_risk_returns_coordinates_for_gps_less_reports(client):
+    r = client.get("/public/pincode/734223").json()
+    assert r["place"] == "Tindharia" and r["pincode"] == "734223"
+    assert 26.8 < r["lat"] < 26.9 and 88.3 < r["lon"] < 88.4
+    assert client.get("/public/pincode/000000").status_code == 404
+
+
 # --------------------------------------------------------------- webhooks
 
 

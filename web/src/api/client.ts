@@ -93,6 +93,7 @@ export interface PublicRisk {
   severity: Severity | null; message: string
   active_alert: { tier: Tier; title: string; created_at: string } | null
   computed_at: string | null; distance_km?: number | null
+  pincode?: string; lat?: number; lon?: number
 }
 
 export interface ReplayEvent {

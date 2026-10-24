@@ -64,11 +64,13 @@ def risk_at(lat: float, lon: float, lang: str = "en", db: Session = Depends(get_
 
 @router.get("/pincode/{pincode}", summary="Current risk for a pincode")
 def risk_by_pincode(pincode: str, lang: str = "en", db: Session = Depends(get_db)) -> dict:
-    row = db.execute(text("SELECT place, zone_id FROM pincodes WHERE pincode = :p LIMIT 1"),
+    row = db.execute(text("SELECT place, zone_id, lat, lon FROM pincodes WHERE pincode = :p LIMIT 1"),
                      {"p": pincode}).mappings().first()
     if row is None:
         raise HTTPException(404, f"Pincode {pincode} is not in the demo districts")
-    return _answer(db, row["zone_id"], row["place"], lang, row["zone_id"] is not None)
+    # lat/lon let the report flow file a report by pincode when GPS is off.
+    return {**_answer(db, row["zone_id"], row["place"], lang, row["zone_id"] is not None),
+            "pincode": pincode, "lat": row["lat"], "lon": row["lon"]}
 
 
 @router.get("/sms-number", summary="The number keyword SMS should be sent to")
