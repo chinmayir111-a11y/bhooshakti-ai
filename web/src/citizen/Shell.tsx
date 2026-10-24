@@ -1,6 +1,10 @@
 /** Frame for every citizen screen: the ridge scene (sky, fog, rain and
  *  lightning follow the risk where the person is), the risk as one big word,
- *  language pills, back link, offline banner, and a quiet footer. */
+ *  a language dropdown top-right, back link, offline banner, quiet footer.
+ *
+ *  Layout is by screen width only (CSS media queries in citizen.css):
+ *  phones stack everything; on desktop the home page's actions sit on the
+ *  hero beside the risk, in an 1100 px container. */
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { IconAlert, IconBack, PictoSpeaker } from '../components/Pictograms'
@@ -42,7 +46,7 @@ export function Speak({ text, lang, dark = false, label }: { text: string; lang:
   )
 }
 
-export default function Shell({ title, back = false, children }: { title?: string; back?: boolean; children: ReactNode }) {
+export default function Shell({ title, back = false, home = false, children }: { title?: string; back?: boolean; home?: boolean; children: ReactNode }) {
   const [lang, setLang, t] = useLang()
   const online = useOnline()
   const zone = useZoneState()
@@ -51,44 +55,39 @@ export default function Shell({ title, back = false, children }: { title?: strin
   const word = t(`scene_${zone.state}`)
   const sub = t(`scene_sub_${zone.state}`)
 
-  const top = (
-    <>
-      <div style={{ minWidth: 0 }}>
-        {back ? (
-          <Link to="/" className="cz-back"><IconBack size={20} />{t('home')}</Link>
-        ) : (
-          <>
-            <div className="cz-brand">{t('app_name')}</div>
-            <div className="cz-loc">{zone.place ?? t('tagline')}</div>
-          </>
-        )}
-      </div>
-      {weather && <div className="cz-wx">{weather}</div>}
-    </>
-  )
-  const big = back ? (
-    <h1 className="cz-title">{title}</h1>
-  ) : (
-    <Link to="/safe" className="cz-level" aria-label={`${word}. ${sub}`}>
-      <div className="lvl"><Dot state={zone.state} /><span>{word}</span></div>
-      <div className="sub">{sub}</div>
-    </Link>
-  )
-
   return (
-    <div className="cz">
-      <Scene state={zone.state} raining={raining} compact={back} top={top} big={big} />
-      <main className="cz-body">
-        <div className="cz-langs" role="group" aria-label="Language">
-          {LANGS.map((l) => (
-            <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)} lang={l}>{langName(l)}</button>
-          ))}
+    <div className={`cz${home ? ' home' : ''}`}>
+      <Scene state={zone.state} raining={raining} compact={back}>
+        <div className="scene-top">
+          <div style={{ minWidth: 0 }}>
+            {back ? (
+              <Link to="/" className="cz-back"><IconBack size={20} />{t('home')}</Link>
+            ) : (
+              <div className="cz-brand">{t('app_name')}</div>
+            )}
+          </div>
+          <select className="cz-lang" value={lang} onChange={(e) => setLang(e.target.value as Lang)} aria-label="Language">
+            {LANGS.map((l) => <option key={l} value={l} lang={l}>{langName(l)}</option>)}
+          </select>
         </div>
+        <div className="scene-big">
+          {back ? (
+            <h1 className="cz-title">{title}</h1>
+          ) : (
+            <Link to="/safe" className="cz-level" aria-label={`${word}. ${sub}`}>
+              <div className="lvl"><Dot state={zone.state} /><span>{word}</span></div>
+              <div className="sub">{sub}</div>
+            </Link>
+          )}
+          <div className="cz-loc">{[zone.place, weather].filter(Boolean).join(' · ') || t('tagline')}</div>
+        </div>
+      </Scene>
+      <main className="cz-body">
         {!online && <div className="cz-offline" role="status"><IconAlert />{t('offline_banner')}</div>}
         {children}
         {needsReview(lang) && <p className="cz-review">{t('review_note')}</p>}
       </main>
-      <footer className="cz-foot"><Link to="/about">Demo · {t('about')}</Link></footer>
+      <footer className="cz-foot"><Link to="/about">{t('about')}</Link></footer>
     </div>
   )
 }

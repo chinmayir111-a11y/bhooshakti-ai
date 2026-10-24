@@ -19,45 +19,48 @@
 }
 .cz h1, .cz h2, .cz-brand, .czbtn .txt, .light-word, .cz-level .lvl { font-family: var(--font-head); }
 
-/* ---- the scene */
-.scene { position: relative; height: 250px; overflow: hidden; color: #E8EFEA; transition: background 1.2s; flex: 0 0 auto; }
-.scene.compact { height: 190px; }
+/* ---- the scene (hero). Heights by screen width; see the media queries at
+   the end for tablet, desktop and landscape phones. */
+.scene { position: relative; height: 220px; overflow: hidden; color: #E8EFEA; transition: background 1.2s; flex: 0 0 auto; }
 .scene > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .scene .ridge { transition: fill 1.2s; }
 .scene .p1 { animation: par 30s ease-in-out infinite alternate; }
 .scene .p2 { animation: par 22s ease-in-out infinite alternate-reverse; }
-@keyframes par { from { transform: translateX(-6px); } to { transform: translateX(6px); } }
-.fog { position: absolute; left: -50%; width: 200%; height: 40px; border-radius: 50%; background: rgba(255,255,255,.14); filter: blur(10px); animation: fog linear infinite; pointer-events: none; }
+@keyframes par { from { transform: translateX(-0.4%); } to { transform: translateX(0.4%); } }
+.fog { position: absolute; left: -50%; width: 200%; height: 12%; min-height: 28px; border-radius: 50%; background: rgba(255,255,255,.14); filter: blur(10px); animation: fog linear infinite; pointer-events: none; }
 @keyframes fog { from { transform: translateX(0); } to { transform: translateX(25%); } }
 .scene .rain { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.scene .rain i { position: absolute; top: -30px; width: 1px; height: 22px; background: rgba(220,235,245,.55); transform: rotate(12deg); animation: fall linear infinite; opacity: 0; transition: opacity .8s; }
+.scene .rain i { position: absolute; top: -40px; width: 1px; height: 24px; background: rgba(220,235,245,.55); transform: rotate(12deg); animation: fall linear infinite; opacity: 0; transition: opacity .8s; }
 .scene .rain.on i { opacity: 1; }
-@keyframes fall { from { translate: 0 -30px; } to { translate: -40px 300px; } }
+@keyframes fall { from { translate: 0 -40px; } to { translate: -90px 110vh; } }
 .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 .flash.on { animation: flash 6s infinite; }
 @keyframes flash { 0%, 91%, 95%, 100% { opacity: 0; } 92% { opacity: .35; } 93% { opacity: .05; } 94% { opacity: .25; } }
-.scene-top { position: absolute; left: 18px; right: 18px; top: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; z-index: 3; }
-.scene-big { position: absolute; left: 18px; right: 18px; bottom: 20px; z-index: 3; }
-.cz-brand { font-size: 13px; letter-spacing: .22em; font-weight: 700; opacity: .92; }
-.cz-loc { font-size: 12px; opacity: .78; margin-top: 3px; }
-.cz-wx { font-size: 12px; opacity: .82; text-align: right; white-space: nowrap; flex: 0 0 auto; }
+
+/* Text on the hero: a centred container; fluid sizes. */
+.scene-inner { position: absolute; inset: 0; z-index: 3; width: min(100%, 1100px); margin: 0 auto; padding: clamp(14px, 2vw, 24px) clamp(16px, 3vw, 32px); display: flex; flex-direction: column; justify-content: space-between; }
+.scene-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.scene-big { min-width: 0; }
+.cz-brand { font-size: clamp(13px, 1.1vw + 9px, 28px); letter-spacing: .2em; font-weight: 700; opacity: .92; padding-top: 6px; }
+.cz-loc { font-size: clamp(12px, 0.9vw + 8px, 15px); opacity: .8; margin-top: 6px; }
 .cz-level { display: block; color: inherit; text-decoration: none; }
-.cz-level .lvl { display: flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; }
-.cz-level .sub { font-size: 13.5px; opacity: .85; margin-top: 5px; line-height: 1.4; }
-.dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; animation: pulse 2.2s ease-out infinite; }
+.cz-level .lvl { display: flex; align-items: center; gap: 10px; font-size: clamp(27px, 3.2vw, 46px); font-weight: 700; letter-spacing: -.01em; line-height: 1.1; }
+.cz-level .sub { font-size: clamp(13.5px, 1vw + 8px, 17px); opacity: .85; margin-top: 5px; line-height: 1.4; }
+.dot { width: .45em; height: .45em; border-radius: 50%; flex: 0 0 auto; animation: pulse 2.2s ease-out infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--g); } 70% { box-shadow: 0 0 0 12px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-.cz-title { font-size: 26px; font-weight: 700; margin: 0; line-height: 1.15; }
-.cz-back { display: inline-flex; align-items: center; gap: 6px; color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; min-height: 40px; padding: 0 2px; }
+.cz-title { font-size: clamp(24px, 2.4vw, 34px); font-weight: 700; margin: 0; line-height: 1.15; }
+.cz-back { display: inline-flex; align-items: center; gap: 6px; color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; min-height: 48px; padding: 0 2px; }
 
-/* ---- language pills: compact row under the scene */
-.cz-langs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
-.cz-langs button {
-  border: 0.5px solid var(--line-strong); background: rgba(232,239,234,.06); color: var(--text);
-  border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 32px;
+/* Language dropdown, top-right of the hero. */
+.cz-lang {
+  flex: 0 0 auto; min-height: 48px; padding: 0 36px 0 14px; border-radius: 999px;
+  border: 0.5px solid rgba(232,239,234,.45); background: rgba(15,26,23,.35) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E8EFEA' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 16px;
+  color: #E8EFEA; font: inherit; font-size: 15px; font-weight: 600; appearance: none; -webkit-appearance: none; cursor: pointer; backdrop-filter: blur(6px);
 }
-.cz-langs button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.cz-lang option { color: #0F1A17; background: #fff; }
 
-.cz-body { flex: 1 1 auto; padding: 16px 14px 20px; max-width: 560px; width: 100%; margin: 0 auto; }
+.cz-body { flex: 1 1 auto; padding: clamp(14px, 2vw, 22px) clamp(14px, 3vw, 24px) 20px; max-width: 560px; width: 100%; margin: 0 auto; }
+.cz-body > .actions { display: flex; flex-direction: column; gap: 10px; }
 .cz-notice { font-size: 13px; color: var(--text-muted); text-align: center; margin: 0 0 14px; line-height: 1.5; }
 .cz-review { font-size: 12px; color: var(--earth); text-align: center; margin: -6px 0 12px; }
 .cz-offline {
@@ -69,8 +72,8 @@
 
 /* Calm, solid buttons: one bright main action, two quiet ones. */
 .czbtn {
-  display: flex; align-items: center; gap: 12px; border-radius: 14px; padding: 14px; margin-bottom: 10px;
-  font-size: 17px; font-weight: 600; cursor: pointer; text-decoration: none; min-height: 72px;
+  display: flex; align-items: center; gap: 12px; border-radius: 14px; padding: 14px;
+  font-size: clamp(17px, 1vw + 10px, 19px); font-weight: 600; cursor: pointer; text-decoration: none; min-height: 72px;
   transition: transform .15s, background .3s; animation: rise .7s cubic-bezier(.2,.7,.2,1) both;
 }
 .czbtn:active { transform: scale(.97); }
@@ -83,6 +86,8 @@
 .czbtn.pri .speakbtn { background: rgba(15,26,23,.1); color: #0F1A17; }
 .czbtn.sec { background: rgba(232,239,234,.07); border: 0.5px solid rgba(232,239,234,.16); color: #E8EFEA; }
 .czbtn.sec .ic { background: rgba(232,239,234,.08); }
+.czbtn.sos { background: rgba(179,38,30,.22); border: 0.5px solid rgba(248,113,113,.45); color: #FBE9E7; }
+.czbtn.sos .ic { background: #B3261E; color: #fff; }
 .czbtn.pri.hot { animation: rise .7s both, glow 2.6s ease-in-out 1s infinite; }
 @keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(251,146,60,0); } 50% { box-shadow: 0 0 0 4px rgba(251,146,60,.35); } }
 
@@ -105,7 +110,7 @@
 .bigbtn.bamboo .ico { background: rgba(43,36,16,.10); }
 
 .speakbtn {
-  flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%; border: 0;
+  flex: 0 0 auto; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; border: 0;
   background: rgba(255,255,255,.18); color: inherit; display: grid; place-items: center; cursor: pointer;
   transition: transform .12s var(--ease);
 }
@@ -218,14 +223,67 @@
 .cz-about li { padding: 10px 0; border-top: 1px solid var(--line); }
 .cz-about li:first-child { border-top: 0; }
 
+/* ================================================================ responsive
+   By screen width only. Phones (<600) stack; tablets (600–1023) stay single
+   column with a taller hero; desktops (>=1024) lay the home actions ON the hero
+   beside the risk, both inside an 1100 px container. */
+
+@media (hover: hover) {
+  .czbtn:hover { filter: brightness(1.06); }
+  .czbtn.sec:hover { background: rgba(232,239,234,.11); }
+  .cz-lang:hover { background-color: rgba(15,26,23,.5); }
+  .speakbtn:hover { filter: brightness(1.15); }
+  .cz-linkbtn:hover { background: var(--surface-2); }
+}
+
+@media (max-width: 599px) {
+  .cz { font-size: 18px; }
+  .picto-grid { gap: 8px; }
+  .cz-foot a { display: inline-block; padding: 12px; }
+}
 @media (max-width: 380px) {
   .bigbtn .txt { font-size: 19px; }
-  .picto-grid { gap: 8px; }
 }
-@media (min-width: 700px) {
+
+@media (min-width: 600px) {
   .scene { height: 300px; }
-  .scene-top, .scene-big { left: max(18px, calc(50% - 262px)); right: max(18px, calc(50% - 262px)); }
+  /* Hero text lines up with the centred content column. */
+  .scene-inner { width: min(100%, 560px); padding-inline: clamp(14px, 3vw, 24px); }
+  .cz-lang { min-height: 40px; }
+  .cz-back { min-height: 40px; }
 }
+
+@media (min-width: 1024px) {
+  /* Home: the hero is the page. It fills the viewport (at least 60vh), the
+     risk sits left, the action card right, both inside the 1100 px container;
+     the footer rests on the dark foreground bank. No empty band below. */
+  .cz.home { position: relative; }
+  .cz.home .scene { flex: 1 1 auto; height: auto; min-height: max(60vh, 460px); }
+  .cz.home .scene-inner { width: min(100%, 1100px); padding-top: clamp(20px, 3vh, 32px); }
+  .cz.home .scene-big { position: absolute; left: clamp(16px, 3vw, 32px); top: 50%; transform: translateY(-30%); max-width: calc(50% - 40px); }
+  .cz.home .cz-body { position: absolute; z-index: 4; top: clamp(96px, 15vh, 140px); left: 50%; transform: translateX(-50%);
+    width: min(1100px, 100% - 2 * clamp(16px, 3vw, 32px)); max-width: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: 1fr minmax(380px, 480px); column-gap: 40px; align-items: start; }
+  .cz.home .cz-body > * { grid-column: 2; }
+  .cz.home .cz-body > .actions { background: rgba(15,26,23,.78); border: 0.5px solid rgba(232,239,234,.16); border-radius: 18px; padding: 16px; backdrop-filter: blur(8px); }
+  .cz.home .czbtn { min-height: 76px; }
+  .cz.home .cz-foot { position: relative; z-index: 4; }
+  /* Other screens: a 300 px hero whose text lines up with the 640 px column. */
+  .cz:not(.home) .scene { height: 300px; }
+  .cz:not(.home) .scene-inner { width: min(100%, 640px); padding-inline: clamp(14px, 3vw, 24px); }
+  .cz:not(.home) .cz-body { max-width: 640px; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .scene, .cz.home .scene, .cz:not(.home) .scene { flex: 0 0 auto; height: 140px; min-height: 0; }
+  .cz-level .lvl { font-size: 22px; }
+  .cz-level .sub, .cz-loc { display: none; }
+  .scene-inner { padding-top: 10px; padding-bottom: 10px; }
+  .cz.home .cz-body { position: static; transform: none; width: 100%; max-width: 640px; margin: 0 auto; padding: 14px 16px; display: block; }
+  .cz.home .cz-body > .actions { background: none; border: 0; padding: 0; }
+  .cz.home .scene-big { position: static; transform: none; max-width: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scene *, .scene .rain i, .dot, .czbtn, .bigbtn, .light { animation: none !important; }
   .scene .rain { display: none; }

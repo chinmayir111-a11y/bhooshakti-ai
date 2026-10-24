@@ -27,7 +27,7 @@ where a number comes from). Open the **Demo** menu (right end of the counter str
 1. Show the home screen: **three buttons, no reading needed**. Tap the speaker on
    *Tell us what you saw* — it speaks. The header is a living scene: the ridges, fog and
    rain follow the risk where the phone is (grant location once on `/safe`), and the risk is one
-   word with a pulsing dot — *Safe*, *Stay watchful*, *Danger*. Switch the language pill to **नेपाली** — the buttons and the
+   word with a pulsing dot — *Safe*, *Stay watchful*, *Danger*. Switch the language dropdown (top-right) to **नेपाली** — the buttons and the
    voice change. Point out the *translation under review* line: machine translations are
    labelled as such.
 2. Tap **Is it safe near me?** — a traffic-light circle with a pictogram and a spoken line
