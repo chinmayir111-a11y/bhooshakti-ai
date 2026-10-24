@@ -6,14 +6,18 @@ Smart India Hackathon 2026 · Problem Statement **26001** (MDoNER — Disaster M
 Team **DEADLINE SURVIVORS**
 
 > ### ⚠ WHAT IS REAL HERE, AND WHAT IS NOT
-> **Rainfall and soil moisture are real observed data** — hourly ERA5 reanalysis and
-> forecast pulled per zone from [Open-Meteo](https://open-meteo.com) and cached locally.
-> Place names and approximate coordinates are real North-East India locations.
+> **Real:** rainfall and soil moisture (hourly ERA5 reanalysis + forecast from
+> [Open-Meteo](https://open-meteo.com), cached per zone with the grid cell recorded);
+> the historical landslide record (351 [NASA Global Landslide Catalog](https://catalog.data.gov/dataset/global-landslide-catalog-export-75464)
+> events in North-East India, 2007–2016, plus two documented 2022/2024 events with their
+> sources); the model, which is trained on those events; the backtest counts; citizen
+> reports and the escalation that follows them; terrain in the 3D map (AWS Terrain Tiles).
 >
-> **Everything hazard-related is simulated**: the 120 historical landslide events, the 40
-> sensor nodes, the zone boundaries, and the monsoon event the demo plays. No physical
-> sensor exists and no government hazard feed is connected. Every data screen carries a
-> permanent `DEMO DATA` badge and names its weather source on screen.
+> **Simulated:** the zone boundaries and their terrain attributes, the sensor nodes
+> (except `HW-01` when a real ESP32 is plugged in — see *Demo with a real sensor*), the
+> scripted monsoon storm, the escalation roster and the demo subscriber numbers. Turn on
+> **Show data sources** in the control room and every number says which it is.
+> See [Real vs simulated data](#real-vs-simulated-data) for the full table.
 
 ---
 
@@ -23,18 +27,19 @@ Team **DEADLINE SURVIVORS**
 
 | Stage | What happens | Where to see it |
 |---|---|---|
-| **PREDICT** | XGBoost susceptibility model + 24h rainfall outlook, fused into a risk score | Zone drawer on the dashboard |
-| **MONITOR** | Simulated IoT nodes publish rainfall / soil moisture / tilt over MQTT | Sensor layer + `/sensors` |
-| **VERIFY** | Field officers confirm or deny on site — offline-first, syncs later | Expo field app |
-| **ALERT** | Zones crossing HIGH or CRITICAL fire automatically on every channel | Left rail + `/alerts` |
+| **PREDICT** | XGBoost trained on real NASA GLC landslides + 24h outlook, fused into a risk score | Zone drawer in `/control` |
+| **MONITOR** | IoT nodes (simulated, or a real ESP32) publish rainfall / soil moisture / tilt over MQTT; measured tilt raises risk directly | Sensor layer, LIVE dot |
+| **VERIFY** | Citizens report by app, PWA, SMS or missed call; reports are scored, escalated and never left unseen; field officers confirm on site | `/`, `/control/moderation` |
+| **ALERT** | ADVISORY (machine) and WARNING (human-confirmed / CRITICAL) on websocket, email, SMS, voice call, push, CAP 1.2 feed and a siren MQTT topic | `/control/alerts`, `/api/cap/alerts.xml` |
 | **RESPOND** | PostGIS works out which roads and settlements are cut off, and what to do first | Map + response plan |
 
 **AI here is risk forecasting and early-warning decision support — never a guaranteed
 prediction.** Every risk output carries a **confidence score** and **ranked contributing
 factors in plain language**. Confidence falls when the evidence is thin: failed sensors,
-stale telemetry, or the model disagreeing with what the rain gauges say. Model accuracy
-figures are deliberately never shown in the UI or served by the API — accuracy measured
-on synthetic data would misrepresent real-world skill.
+stale telemetry, or the model disagreeing with what the rain gauges say. Model skill is
+reported only one way: as counts from a backtest on real held-out landslides
+(*warned before 16 of 34*), never as an accuracy percentage — see
+[Backtest on real landslides](#backtest-on-real-landslides).
 
 ---
 
@@ -531,3 +536,178 @@ All demo accounts use the password `demo1234`.
 > **Note:** BHOOSHAKTI AI clearly distinguishes real weather observations from simulated sensor telemetry, historical landslide events, terrain attributes, infrastructure data and the demonstration monsoon event. See **What is real vs simulated** for the complete data provenance.
 
 *Prototype built for SIH 2026 PS 26001. Not for operational use.*
+
+---
+
+## Two apps in one
+
+| URL | Who | What |
+|---|---|---|
+| `/` | Public | Citizen app: three giant buttons with audio labels — **Report landslide**, **Am I safe?**, **Emergency help**. Installable PWA, works offline, five languages. No map libraries are loaded here; the whole citizen bundle is ~80 KB gzipped. |
+| `/control` | Officers (login) | Control room: live counters, activity ticker, 3D terrain map (MapLibre + deck.gl, with a 2D / low-data toggle), alert feed, escalation panel, moderation, audit. Full dark mode. |
+| `/replay` | Public | Replay real past landslides hour by hour through the live risk pipeline. |
+
+Languages: English, Hindi, Assamese, Bengali, Nepali. The Bengali and Nepali strings, and
+every new Hindi/Assamese string since the first prototype, are **machine translations
+awaiting review by a native speaker** — the app says so on screen
+(`web/src/i18n/strings.json` → `_meta.needs_native_review`).
+
+---
+
+## Rural / offline access
+
+Most people on these slopes have a feature phone and patchy 2G. Every channel below works
+with no smartphone or no data; the ones that need a paid gateway run as clearly labelled
+stubs until credentials are set in `.env`.
+
+| Channel | How it works | Status in the demo |
+|---|---|---|
+| **SMS in** | `POST /api/inbound/sms` accepts Twilio or MSG91 webhooks. Keywords, case-insensitive: `LS <pincode or village> <what you see>` files a landslide report; `SAFE <pincode>` replies with the current risk; `JOIN <pincode> [HI]` registers the number for that zone's alerts; `STOP` ends them. Pincodes are resolved through a seeded `pincodes` table for the demo districts (`backend/scripts/geodata.py`). | Endpoint and parser are real and tested. Replies go through the SMS stub (logged) until `SMS_PROVIDER` is set. |
+| **Missed call / IVR** | `POST /api/inbound/ivr` (Exotel-style). A missed call from a registered number triggers a call-back that reads the zone's risk aloud; *press 1* records a 20 s voice note that is stored like a photo and filed as a report. | Flow is real and tested; the outbound call is stubbed until `VOICE_PROVIDER` is set. |
+| **Outbound voice** | New `voice` notify channel: a text-to-speech call in the subscriber's language (Exotel or Twilio adapters). Public ADVISORY/WARNING recipients get SMS **and** a call. | Stub unless configured. |
+| **CAP 1.2 feed** | `GET /api/cap/alerts.xml` — every alert as Common Alerting Protocol 1.2, the format NDMA's SACHET and cell-broadcast systems consume. Validated in tests against the OASIS schema. Messages carry `status=Exercise`. | Real. **Actual cell broadcast requires government integration** (SACHET onboarding, telecom gateways); this feed is what that integration would consume. |
+| **Siren hook** | Every WARNING is published on MQTT `bhooshakti/siren/<zone_id>` so a GSM/LoRa relay at a panchayat office can sound a siren. | Real (needs a relay on the wire). |
+| **PWA offline** | `/` is installable. Offline, a report is queued in IndexedDB (same pattern as the field app's queue) and sent when the network returns; a **Send by SMS instead** button opens the phone's SMS app pre-filled with `LS <pincode> <description>`. | Real. |
+
+Demo numbers (`+9198000000xx`) are reserved test ranges; nothing ever rings a real phone
+unless you configure a provider.
+
+---
+
+## What happens when no officer is online
+
+A citizen report is never allowed to sit unseen.
+
+1. **On arrival** the report gets a **corroboration score (0–100)** with plain-language reasons:
+   inside a zone currently HIGH/CRITICAL **+30** · 24 h observed rainfall above the zone's
+   own threshold **+20** · a sensor within 2 km with a tilt or saturation anomaly in the last
+   6 h **+25** · ≥3 independent reports (different phone numbers) within 1.5 km and 60 min
+   **+25** · photo **+5** · location outside every monitored zone **−30**.
+2. **T+0** — the district's on-duty moderator is paged by websocket, SMS and email.
+3. **T+10 min unacknowledged** — the next officer in `escalation_contacts` (an ordered
+   roster per district) is paged; again every 10 minutes until the roster runs out.
+4. **T+20 min unacknowledged and score ≥ 60** — an **ADVISORY** goes automatically to
+   everyone registered in that zone: *“Unverified public reports of a landslide near X. Stay
+   alert, avoid the slope/road, await official confirmation.”*
+5. **Score ≥ 85 at any time** — the ADVISORY goes out immediately, still awaiting a human.
+
+Two alert tiers are shown everywhere: **ADVISORY** (machine-issued, unconfirmed) and
+**WARNING** (human-confirmed, or the model at CRITICAL). A model HIGH is an advisory, not a
+warning. A moderator's one click **CONFIRM** upgrades the advisory to a WARNING (and sounds
+the siren); **DISMISS** sends an *all clear / false report* follow-up to exactly the people
+the advisory reached. A second report of the same slide joins the advisory already out
+rather than texting the public twice. Every automatic action is written to the audit log
+with the full score breakdown. The ladder runs as a background job every minute
+(`app/services/escalation.py`); its timings are tested with frozen time.
+
+---
+
+## Real vs simulated data
+
+| Item | Status | Source / how to verify |
+|---|---|---|
+| Rainfall, soil moisture | **REAL** | Open-Meteo ERA5 archive + forecast. Zone drawer → *Weather provenance* shows the endpoint, model, grid cell actually used, fetch time and a **Verify live** link that opens the exact Open-Meteo URL so you can compare numbers yourself. |
+| Past landslides | **REAL** | NASA Global Landslide Catalog (CSV cached in `backend/data/raw/`), filtered to the eight NE states; plus `backend/data/curated_events.csv` with source URLs. `source` column says which. |
+| Model | **REAL training data** | Trained only on hydro-meteorological features of pre-2016 events; terrain attributes are not learned because catalogue points carry no terrain survey. |
+| Terrain in the 3D map | **REAL** | AWS Terrain Tiles (Mapzen terrarium DEM), hillshade from the same source. |
+| Citizen reports, escalation, audit | **REAL** | Whatever you submit. |
+| Zone polygons and their slope / lithology / land cover | SIMULATED | `backend/scripts/geodata.py`. Real place names and approximate coordinates. |
+| Sensor nodes | SIMULATED, except `HW-01` | `sensor_nodes.source` = `simulated` or `hardware`. Only a hardware node can show the green LIVE dot. The keyboard demo node `KB-01` is registered as simulated. |
+| The monsoon storm the demo plays | SIMULATED | `app/services/demo_engine.py`; its strength is re-measured after every retrain (`scripts/calibrate_demo.py`). |
+| Escalation roster, subscribers, pincode→zone map | SIMULATED / seeded | Reserved phone ranges; real pincodes for the demo towns. |
+
+The control room's **Show data sources** toggle puts a `REAL · Open-Meteo`, `REAL · live sensor`
+or `SIMULATED` badge beside every number.
+
+---
+
+## Backtest on real landslides
+
+```bash
+make import-landslides   # NASA GLC + curated events, then 30 days of ERA5 before each (cached)
+make train               # train on pre-2016 events only
+make backtest            # replay the held-out events -> ml/artifacts/backtest_results.json
+```
+
+**Method.** 353 real events are imported; those from the test year (2016) onward plus the two
+curated events — 34 in all — are held out and never trained on. For each held-out event the
+week before it is replayed hour by hour through the same pipeline the live system uses
+(`risk_service.assess_series`), with a statistical nowcast in place of the Open-Meteo forecast
+(no archived forecast exists for past events, and nothing from the future is used). The
+alert threshold is HIGH (risk ≥ 50), where the live system alerts. The reference time is the
+recorded time, or — since the GLC records dates only — the **start** of the local event day,
+so a warning only counts if it beat the whole day. For every event the same place is also
+replayed in a year with no catalogued landslide nearby (same calendar window) and in a dry
+February week, to count false alarms.
+
+**Result (model `v2.0-xgb-real`, 24 Oct 2026):**
+
+> Warned before **16 of 34** held-out landslides (median **63 h** ahead); 0 more on the same day;
+> **18 missed**. False alarms: **3 of 6** same-season non-event windows, **2 of 34** dry-season windows.
+
+Of the two demo events, **Aizawl 28 May 2024** was warned 3.5 h ahead; **Noney/Tupul 30 June
+2022** was **missed** (peak risk 42.5, under the threshold). Both are shown as-is on `/replay`.
+Caveats worth saying out loud: the GLC is a news-derived, incomplete catalogue, so some
+"non-event" windows may hide unreported slides; event locations carry 1–50 km uncertainty;
+ERA5 is a ~25 km reanalysis, not a rain gauge on the slope; and rainfall alone cannot see
+road-cutting or quarrying triggers. The numbers are counts, not an accuracy claim.
+
+`/replay` lets a judge pick any held-out event, play the week at 1–16×, watch the rainfall
+bars and the risk line cross the HIGH threshold (banner: *Alert would have fired on … — N hours
+before the landslide*), see the real event marker with a link to its source record, and then
+play the dry week at the same place. The 3D camera orbits the site while the rain column grows.
+
+---
+
+## Demo with a real sensor
+
+`hardware/esp32_node/esp32_node.ino` turns an ESP32 into a slope sensor publishing the same
+MQTT JSON as the simulator to `bhooshakti/sensors/HW-01`. The board measures tilt against the
+orientation it had at power-on, so it reads ~0° where installed and climbs as the slope moves.
+
+**Parts (approx. INR, Oct 2026 street prices):**
+
+| Part | Approx. cost |
+|---|---|
+| ESP32 DevKit v1 (Wi-Fi + Bluetooth) | ₹350–450 |
+| MPU6050 accelerometer/gyro breakout | ₹120–180 |
+| Capacitive soil moisture sensor v1.2/v2.0 | ₹90–150 |
+| Tipping-bucket rain gauge (optional) | ₹900–1,500 |
+| 18650 cell + TP4056 charger + holder (optional) | ₹250–350 |
+| Jumper wires, enclosure, stake | ₹150 |
+| **Total** | **≈ ₹1,000 without rain gauge; ≈ ₹2,500 with** |
+
+**Wiring:**
+
+| ESP32 pin | Connects to |
+|---|---|
+| 3V3 | MPU6050 VCC, soil sensor VCC |
+| GND | MPU6050 GND, soil sensor GND, rain gauge one side |
+| GPIO 21 (SDA) | MPU6050 SDA |
+| GPIO 22 (SCL) | MPU6050 SCL |
+| GPIO 34 (ADC1) | soil sensor AOUT |
+| GPIO 27 | rain gauge reed switch (other side), internal pull-up |
+| GPIO 35 (optional) | battery through a 100 k / 100 k divider |
+
+Flash with the Arduino IDE (board *ESP32 Dev Module*, library *PubSubClient*), set `WIFI_SSID`,
+`WIFI_PASSWORD` and `MQTT_HOST` (the laptop running mosquitto; `ipconfig getifaddr en0`).
+`infra/mosquitto/mosquitto.conf` already listens on the LAN. Details, calibration and a
+LoRa variant: `hardware/esp32_node/README.md`.
+
+**Demo script (the "wow" minute):**
+
+1. Open `/control`, click zone **DJ-04 Tindharia–Paglajhora**. In the drawer, `HW-01` shows a
+   green **LIVE** dot and *n s ago*.
+2. Tilt the board slowly past ~1.5°. Within seconds the ticker reads *Sensor HW-01 tilt +1.6°
+   (LIVE hardware)*, the zone is recomputed, and *Ground movement measured at sensor HW-01*
+   appears as the top contributing factor.
+3. Keep tilting towards 3° — the zone crosses into HIGH (ADVISORY) and, with the storm running,
+   CRITICAL (WARNING). The alert feed, chime and siren topic fire; the configured inbox and
+   test phone get the email/SMS (SMS as a stub unless a provider is set).
+
+**No hardware to hand?** `make demo-live-sensor` runs a keyboard-driven fake node (`KB-01`):
+press **T** to tilt +1.5°, **W** to wet the soil, **R** for a rain burst, **0** to reset. It is
+registered as *simulated* and labelled so everywhere — it can never show the LIVE dot.
+
+> The Arduino sketch was written against the documented ESP32 Arduino core and PubSubClient
+> APIs but was not compiled on the development machine (no Arduino toolchain installed).
