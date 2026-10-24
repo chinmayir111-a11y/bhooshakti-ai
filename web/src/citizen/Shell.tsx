@@ -7,7 +7,7 @@
  *  hero beside the risk, in an 1100 px container. */
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { IconAlert, IconBack, PictoSpeaker } from '../components/Pictograms'
+import { IconAlert, IconBack, IconPin, PictoSpeaker } from '../components/Pictograms'
 import { LANGS, canSpeak, langName, needsReview, speak, useLang, type Lang } from '../i18n'
 import { useOnline } from '../hooks'
 import Scene, { Dot } from './Scene'
@@ -22,19 +22,20 @@ const NO_VOICE: Record<Lang, string> = {
   ne: 'यो उपकरणमा यस भाषाको आवाज छैन (No Nepali voice on this device)',
 }
 
-export function Speak({ text, lang, dark = false, label }: { text: string; lang: Lang; dark?: boolean; label?: string }) {
+export function Speak({ text, lang, dark = false, label, size = 48 }: { text: string; lang: Lang; dark?: boolean; label?: string; size?: number }) {
   const [state, setState] = useState<'idle' | 'speaking' | 'none'>('idle')
   if (!canSpeak()) return null
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, position: 'relative' }}>
       <button type="button" className={`speakbtn${dark ? ' dark' : ''}${state === 'speaking' ? ' speaking' : ''}`} aria-label={label ?? text}
+              style={size !== 48 ? { width: size, height: size, minWidth: size } : undefined}
               onClick={(e) => {
                 e.preventDefault(); e.stopPropagation()
                 const r = speak(text, lang)
                 setState(r === 'none' ? 'none' : 'speaking')
                 window.setTimeout(() => setState('idle'), r === 'none' ? 3500 : 1500)
               }}>
-        <PictoSpeaker size={24} />
+        <PictoSpeaker size={Math.round(size / 2)} />
       </button>
       {state === 'none' && (
         <span role="status" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 5, background: 'var(--text)', color: 'var(--bg)',
@@ -59,11 +60,14 @@ export default function Shell({ title, back = false, home = false, children }: {
     <div className={`cz${home ? ' home' : ''}`}>
       <Scene state={zone.state} raining={raining} compact={back}>
         <div className="scene-top">
-          <div style={{ minWidth: 0 }}>
+          <div className="cz-brandblock">
             {back ? (
               <Link to="/" className="cz-back"><IconBack size={20} />{t('home')}</Link>
             ) : (
-              <div className="cz-brand">{t('app_name')}</div>
+              <>
+                <div className="cz-brand">{t('app_name')}</div>
+                <div className="cz-tagline">{t('tagline')}</div>
+              </>
             )}
           </div>
           <select className="cz-lang" value={lang} onChange={(e) => setLang(e.target.value as Lang)} aria-label="Language">
@@ -73,13 +77,15 @@ export default function Shell({ title, back = false, home = false, children }: {
         <div className="scene-big">
           {back ? (
             <h1 className="cz-title">{title}</h1>
+          ) : zone.state === 'unknown' ? (
+            <Link to="/safe" className="cz-check"><IconPin size={20} />{t('check_area')}</Link>
           ) : (
             <Link to="/safe" className="cz-level" aria-label={`${word}. ${sub}`}>
               <div className="lvl"><Dot state={zone.state} /><span>{word}</span></div>
               <div className="sub">{sub}</div>
             </Link>
           )}
-          <div className="cz-loc">{[zone.place, weather].filter(Boolean).join(' · ') || t('tagline')}</div>
+          {(zone.place || weather) && <div className="cz-loc">{[zone.place, weather].filter(Boolean).join(' · ')}</div>}
         </div>
       </Scene>
       <main className="cz-body">

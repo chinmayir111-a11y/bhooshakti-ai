@@ -9,8 +9,9 @@ make web        # terminal 2  (:5173)
 
 Open three tabs: `http://localhost:5173/` (citizen app, set the window to phone width or use
 a phone), `http://localhost:5173/control` (sign in `authority` / `demo1234`) and
-`http://localhost:5173/replay`. In the control room turn **Sound on** (leave **Show data sources** off until a judge asks
-where a number comes from). Open the **Demo** menu (right end of the counter strip) and click
+`http://localhost:5173/replay`. The control room opens dark. Its settings live under the **gear icon** (top-right): **Show data
+sources**, **Sound**, **Light/Dark**. Turn **Sound** on; leave **Show data sources** off until a judge asks
+where a number comes from. Open the **Demo** menu (right end of the status row) and click
 **Reset demo** so the map starts calm, then **Warm map cache** once so tiles are local. If you have the ESP32, power it and check
 `HW-01` shows LIVE in the DJ-04 drawer.
 
@@ -47,8 +48,8 @@ where a number comes from). Open the **Demo** menu (right end of the counter str
    > goes out at once."
 5. **Demo menu → Simulate monsoon event** (speed 4×). Zones turn yellow → orange → red on the 3D terrain,
    the rain columns grow, the counters count up, **Be alert (unconfirmed)** and **Danger (confirmed)** chips
-   appear in the feed, the chime sounds, and the **Right now** bar at the top reads *N zones need
-   attention · N reports waiting for check* with a button to the most urgent one. Click a Danger — the camera flies to the zone.
+   appear in the feed, the chime sounds, and the status pill at the top-left reads *N zones need
+   attention · N reports waiting for check* with an **Open** button to the most urgent one. Click a Danger — the camera flies to the zone.
 6. The drawer shows only risk score, **How sure**, **Why** (top 3) and **What to do**. Open
    **More details → Where this data comes from**: endpoint, ERA5 model, the grid cell used, fetched
    time, and **Verify live** — click it; the Open-Meteo page opens with the same numbers.
@@ -144,5 +145,19 @@ would replace TTS in production.
 | Where this data comes from | weather provenance (`/zones/{id}/provenance`) |
 
 Demo controls (Simulate monsoon event, speed, Reset demo, Send test alert, Warm map cache) live in
-the **Demo** menu at the right end of the counter strip. `make demo-check` prints a green/red
+the **Demo** menu at the right end of the status row.
+
+**Map controls (top-right of the map):** 3D / 2D · Map / Satellite · **Layers** (Zones, Reports,
+Sensors, Rain 24 h, Roads & villages) · reset view · zoom and compass. The legend (bottom-left) is
+closed by default — four severity dots; click to expand. Hover a zone for name, risk, how sure and
+24 h rain; click to open its drawer. Markers: red dot = citizen report (a number means several —
+click to spread), diamond = sensor (grey simulated, glowing mint LIVE, red ring anomaly), orange
+line with a marker = blocked road, house with an orange dot = cut-off village, column = 24 h rain
+(blue → amber → red).
+
+**Citizen SOS:** the red **SOS** button on the citizen home is held for 2 seconds (a bar fills;
+letting go cancels). It files a top-priority report (`issue_type = sos`, +40 corroboration points)
+with the phone's GPS and time, opens a call to 112, and offline it queues the report and opens the
+SMS app with the location typed in. In the control room it appears under **Waiting for check** as
+*SOS — person in danger*. `make demo-check` prints a green/red
 readiness list (API, DB, model, MQTT, Open-Meteo, map tiles, SMTP) before you walk in.

@@ -323,7 +323,10 @@ export default function Map3D(p: Props) {
       maxPitch: 75, maxBounds: p.orbit ? undefined : MAX_BOUNDS, attributionControl: false,
       style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': p.dark ? '#0F1A17' : '#EAE6DD' } }] },
     })
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
+    const attrib = new maplibregl.AttributionControl({ compact: true })
+    m.addControl(attrib, 'bottom-right')
+    // Compact attribution opens expanded; start it folded to the (i) button.
+    m.once('load', () => { try { (attrib as any)._container?.classList.remove('maplibregl-compact-show') } catch { /* fine */ } })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
     const ov = new MapboxOverlay({ interleaved: false, layers: [], getTooltip: ({ object }: any) => object?.label ? { text: object.label } : null })
     m.addControl(ov as any)
