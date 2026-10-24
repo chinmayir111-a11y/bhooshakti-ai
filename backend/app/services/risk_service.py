@@ -87,6 +87,18 @@ class ModelRegistry:
             log.exception("model inference failed — using heuristic fallback")
             return _heuristic_probability(row)
 
+    def probabilities(self, rows: list[FeatureRow]) -> list[float]:
+        """Batched `probability` — one model call for a whole replay."""
+        if not rows:
+            return []
+        if not self.loaded or self.model is None:
+            return [_heuristic_probability(r) for r in rows]
+        try:
+            return [float(p) for p in self.model.predict_proba(build_frame(rows))[:, 1]]
+        except Exception:
+            log.exception("batched inference failed — using heuristic fallback")
+            return [_heuristic_probability(r) for r in rows]
+
     @property
     def version(self) -> str:
         return self.meta.get("model_version", "heuristic-fallback" if not self.loaded else "v1")
@@ -194,11 +206,22 @@ def _sensor_state(db: Session, zone_id: int) -> dict[str, Any]:
             last = last.replace(tzinfo=timezone.utc)
         minutes = (datetime.now(timezone.utc) - last).total_seconds() / 60.0
 
+    # Largest tilt swing on any ACTIVE node in the last 6 h — measured movement.
+    tilt = db.execute(text("""
+        SELECT r.node_id, MAX(r.tilt_deg) - MIN(r.tilt_deg) AS swing
+        FROM sensor_readings r JOIN sensor_nodes n ON n.node_id = r.node_id
+        WHERE r.zone_id = :z AND n.status = 'ACTIVE' AND r.tilt_deg IS NOT NULL
+          AND r.ts > NOW() - INTERVAL '6 hours'
+        GROUP BY r.node_id ORDER BY swing DESC NULLS LAST LIMIT 1
+    """), {"z": zone_id}).mappings().first()
+
     return {
         "total": int(row["total"]),
         "active": int(row["active"]),
         "failed_node_ids": failed,
         "minutes_since_last_reading": minutes,
+        "tilt_change_deg": float(tilt["swing"] or 0.0) if tilt else 0.0,
+        "tilt_node": tilt["node_id"] if tilt else "",
     }
 
 
@@ -225,6 +248,62 @@ def _latest_severity(db: Session, zone_id: int) -> Severity | None:
         WHERE zone_id = :z ORDER BY computed_at DESC, id DESC LIMIT 1
     """), {"z": zone_id}).first()
     return Severity(row[0]) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Point assessment (no database) — shared by the backtest and the replay page
+# ---------------------------------------------------------------------------
+
+
+def assess_series(rain: list[float], soil: list[float | None], *, label: str = "",
+                  hours: list[int] | None = None) -> list[dict[str, Any]]:
+    """Score a location hour by hour from its own weather history alone.
+
+    `rain` / `soil` are hourly, oldest first. For each index in `hours`
+    (default: every hour with >= 15 days of history behind it) the same
+    pipeline as the live system runs — window totals, seasonal normal, the
+    statistical 24h nowcast, the trained model, fusion — using ONLY data up to
+    that hour. No future rainfall leaks in: the live system's Open-Meteo
+    forecast is replaced by the nowcast, because no archived forecast exists
+    for past events. There are no sensors and no terrain record for a
+    catalogue point, so those inputs are neutral and confidence reflects it.
+    """
+    min_h = 24 * 15
+    idx = hours if hours is not None else list(range(min_h, len(rain)))
+    idx = [h for h in idx if h >= 24]
+    if not idx:
+        return []
+
+    prepared = []
+    for h in idx:
+        hist = rain[: h + 1]
+        totals = window_totals(hist)
+        soil_now = next((v for v in reversed(soil[: h + 1]) if v is not None), 0.0)
+        fc_mm, _ = forecast_24h(hist)
+        normal = seasonal_normal_72h(hist[-24 * 30:])
+        prepared.append((h, totals, soil_now, fc_mm, normal))
+
+    rows = [FeatureRow(rainfall_24h=t["rainfall_24h"], rainfall_72h=t["rainfall_72h"],
+                       antecedent_rain_15d=t["antecedent_rain_15d"], soil_moisture_pct=sn,
+                       slope_deg=30.0, aspect_deg=180.0, elevation_m=1000.0,
+                       lithology="unknown", land_cover="unknown")
+            for _, t, sn, _, _ in prepared]
+    probs = registry.probabilities(rows)
+
+    out = []
+    for (h, totals, soil_now, fc_mm, normal), p in zip(prepared, probs):
+        r = fuse(FusionInput(
+            zone_code=label, zone_name=label, model_probability=p,
+            rainfall_24h=totals["rainfall_24h"], rainfall_72h=totals["rainfall_72h"],
+            antecedent_rain_15d=totals["antecedent_rain_15d"], soil_moisture_pct=soil_now,
+            forecast_24h_mm=fc_mm, seasonal_normal_72h=normal, slope_deg=30.0,
+            elevation_m=1000.0, lithology="unknown", land_cover="unknown",
+        ))
+        out.append({"hour": h, "risk_score": r.risk_score, "severity": r.severity,
+                    "confidence": r.confidence, "model_probability": round(p, 4),
+                    "rainfall_24h": totals["rainfall_24h"], "rainfall_72h": totals["rainfall_72h"],
+                    "soil_moisture_pct": round(soil_now, 1), "forecast_24h_mm": fc_mm})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +359,8 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
         field_verdict=verification["verdict"],
         verification_age_hours=verification["age_hours"],
         verified_by=verification["officer"],
+        tilt_change_deg=sensors["tilt_change_deg"],
+        tilt_node=sensors["tilt_node"],
     ))
 
     previous = _latest_severity(db, zone.id)
@@ -328,6 +409,8 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
         "verified_by": verification["officer"],
         "sensors_total": sensors["total"],
         "sensors_active": sensors["active"],
+        "tilt_change_deg": round(sensors["tilt_change_deg"], 2),
+        "tilt_node": sensors["tilt_node"],
         "model_version": registry.version,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,

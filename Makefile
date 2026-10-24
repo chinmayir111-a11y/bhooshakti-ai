@@ -44,7 +44,8 @@ DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
 .PHONY: help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean
+        sensors test test-backend test-mobile reset clean import-landslides backtest \
+        train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
 	@echo "BHOOSHAKTI AI — available commands"
@@ -95,7 +96,7 @@ doctor: ## Check prerequisites and report what is missing
 
 # ------------------------------------------------------------------- setup
 
-setup: venv services db seed train ## Install everything and prepare the database
+setup: venv services db seed import-landslides train backtest ## Install everything and prepare the database
 	@cd web && npm install --silent
 	@cd mobile && npm install --silent
 	@echo ""
@@ -143,10 +144,22 @@ seed: ## Rebuild the schema and load data (fetches real weather)
 weather: ## Refresh the cached Open-Meteo weather
 	@cd backend && .venv/bin/python scripts/fetch_weather.py
 
-train: ## Train the susceptibility model
+import-landslides: ## Import REAL NE-India landslides (NASA GLC) + cache their ERA5 weather
+	@cd backend && .venv/bin/python scripts/import_landslides.py
+
+train: ## Train the model on the real events (hold out the most recent year)
 	@cd backend && .venv/bin/python scripts/train.py
 
-reset: seed train ## Rebuild data and model from scratch
+backtest: ## Replay held-out real landslides; writes ml/artifacts/backtest_results.json
+	@cd backend && .venv/bin/python scripts/backtest.py
+
+train-synthetic: ## Offline dev only: seed --synthetic events and train on them
+	@cd backend && .venv/bin/python scripts/seed.py --reset --synthetic && .venv/bin/python scripts/train_synthetic.py
+
+calibrate: ## Re-measure the demo storm after a retrain (see demo_engine.py)
+	@cd backend && .venv/bin/python scripts/calibrate_demo.py
+
+reset: seed import-landslides train backtest ## Rebuild data and model from scratch
 
 # ------------------------------------------------------------------- run
 
@@ -162,11 +175,17 @@ mobile: ## Run the Expo field app on :8081
 sensors: ## Run the simulated sensor network (NOT during the scripted demo)
 	@cd backend && .venv/bin/python scripts/sensor_simulator.py --interval 5
 
+demo-live-sensor: ## Keyboard-driven FAKE hardware node KB-01 (T tilt, W wet) — labelled simulated
+	@cd backend && .venv/bin/python scripts/demo_live_sensor.py
+
+test-email: ## Send a real alert email to TEST_ALERT_EMAIL (needs SMTP_* in .env)
+	@cd backend && .venv/bin/python scripts/test_alert_email.py
+
 # ------------------------------------------------------------------ tests
 
 test: test-backend test-mobile ## Run every test suite
 
-test-backend: ## Fusion, PostGIS spatial and weather tests
+test-backend: ## Backend tests (fusion, spatial, weather, triage, SMS/IVR, CAP, backtest)
 	@cd backend && .venv/bin/python -m pytest -q
 
 test-mobile: ## Offline sync queue tests
