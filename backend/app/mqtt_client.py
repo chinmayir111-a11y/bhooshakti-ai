@@ -39,6 +39,9 @@ from .ws import EVENT_SENSOR_READING, manager
 
 log = logging.getLogger("bhooshakti.mqtt")
 
+# A reading-to-reading rotation this large goes on the dashboard ticker.
+TILT_TICKER_DEG = 0.5
+
 
 class SensorIngest:
     def __init__(self) -> None:
@@ -46,6 +49,8 @@ class SensorIngest:
         self.connected = False
         self.messages_seen = 0
         self._node_cache: dict[str, tuple[int, str]] = {}   # node_id -> (zone_id, status)
+        # Last tilt per node, so a sudden rotation reaches the activity ticker.
+        self._last_tilt: dict[str, float] = {}
         # (zone_id, hour) pairs whose roll-up is stale, and the worker that
         # drains them. A set collapses repeated readings in the same hour into
         # a single recomputation.
@@ -174,8 +179,16 @@ class SensorIngest:
                 "soil_moisture_pct": soil,
                 "tilt_deg": tilt,
                 "battery_pct": battery,
-                "demo_data": True,
+                "source": node.source,
+                "demo_data": node.source != "hardware",
             })
+            if tilt is not None:
+                prev = self._last_tilt.get(node_id)
+                self._last_tilt[node_id] = float(tilt)
+                if prev is not None and abs(float(tilt) - prev) >= TILT_TICKER_DEG:
+                    label = "LIVE hardware" if node.source == "hardware" else "simulated"
+                    manager.activity(f"Sensor {node_id} tilt {float(tilt) - prev:+.1f}° ({label})",
+                                     kind="sensor", node_id=node_id, zone_id=node.zone_id)
 
     # ---------------------------------------------------------------- flush
     def _flush_loop(self) -> None:
@@ -205,6 +218,27 @@ class SensorIngest:
 
         self.rollups_done += len(batch)
         return len(batch)
+
+    def publish(self, topic: str, payload: dict, retain: bool = False) -> bool:
+        """Publish on the ingest connection, or a one-shot connection when the
+        subscriber is not up (scripts, tests). Returns False if the broker is
+        unreachable — callers record that, they never raise on it."""
+        body = json.dumps(payload, default=str)
+        if self.client is not None and self.connected:
+            try:
+                info = self.client.publish(topic, body, qos=1, retain=retain)
+                return info.rc == mqtt.MQTT_ERR_SUCCESS
+            except Exception:
+                log.exception("publish on %s failed", topic)
+                return False
+        try:
+            import paho.mqtt.publish as one_shot
+            one_shot.single(topic, body, qos=1, retain=retain,
+                            hostname=settings.mqtt_host, port=settings.mqtt_port)
+            return True
+        except Exception as exc:
+            log.warning("MQTT publish to %s failed: %s", topic, exc)
+            return False
 
     @property
     def pending_rollups(self) -> int:

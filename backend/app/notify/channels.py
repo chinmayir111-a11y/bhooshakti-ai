@@ -8,6 +8,8 @@ demo to a live deployment is an .env change, never a code change.
   sms   — real Twilio and MSG91 adapters (plain REST, no vendor SDK). Defaults
           to the stub so the demo needs no paid account.
   push  — real Expo push adapter; stub when no device token is registered.
+  voice — text-to-speech call in the recipient's language. Real Exotel and
+          Twilio adapters; stub unless VOICE_PROVIDER and its keys are set.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ import ssl
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
+from xml.sax.saxutils import escape
 
 import httpx
 
@@ -108,6 +111,7 @@ class EmailChannel:
         msg["To"] = to_addr
         msg["Subject"] = f"[BHOOSHAKTI AI · DEMO] {templates.subject(payload)}"
         msg["X-Bhooshakti-Severity"] = payload.severity
+        msg["X-Bhooshakti-Tier"] = payload.tier
         msg["X-Bhooshakti-Data"] = "SIMULATED"
         msg.set_content(templates.plain_text(payload))
         msg.add_alternative(templates.html_body(payload), subtype="html")
@@ -171,6 +175,18 @@ class SmsChannel:
                 ))
         return out
 
+    def send_text(self, number: str, body: str) -> DeliveryResult:
+        """One free-form SMS — used for keyword replies to inbound messages."""
+        provider = settings.sms_provider.lower().strip()
+        if provider == "twilio" and settings.twilio_account_sid:
+            return self._twilio(number, body)
+        if provider == "msg91" and settings.msg91_auth_key:
+            return self._msg91(number, body)
+        log.warning("[sms:SIMULATED] -> %s : %s", number, body)
+        return DeliveryResult(self.name, number, "SIMULATED",
+                              f"stub gateway (SMS_PROVIDER={provider or 'stub'}) — reply logged, not sent",
+                              _now())
+
     def _twilio(self, number: str, body: str) -> DeliveryResult:
         url = (f"https://api.twilio.com/2010-04-01/Accounts/"
                f"{settings.twilio_account_sid}/Messages.json")
@@ -215,7 +231,7 @@ class PushChannel:
         self.tokens = [t for t in (tokens or []) if t]
 
     def send(self, payload: AlertPayload) -> list[DeliveryResult]:
-        title = f"{payload.severity} — {payload.zone_name}"
+        title = f"{payload.tier} · {payload.severity} — {payload.zone_name}"
         body = (f"Risk {payload.risk_score:.0f}/100 · confidence "
                 f"{payload.confidence * 100:.0f}%. "
                 f"{payload.factor_lines[0] if payload.factor_lines else ''}")[:170]
@@ -246,3 +262,78 @@ class PushChannel:
         except Exception as exc:
             return [DeliveryResult(self.name, t, "FAILED", f"expo: {exc}", _now())
                     for t in self.tokens]
+
+
+# ---------------------------------------------------------------------------
+# voice  (text-to-speech call)
+# ---------------------------------------------------------------------------
+
+# BCP-47 tags the TTS engines understand. Assamese has no mainstream TTS
+# voice yet, so it falls back to Bengali script-and-sound, the closest one.
+VOICE_LOCALE = {"en": "en-IN", "hi": "hi-IN", "as": "bn-IN", "bn": "bn-IN", "ne": "ne-NP"}
+
+
+class VoiceChannel:
+    """Outbound call that reads the alert aloud. For people who cannot read an
+    SMS, and for feature phones where an SMS is easy to miss at night."""
+
+    name = "voice"
+
+    def __init__(self, numbers: list[str] | None = None) -> None:
+        self.numbers = [n for n in (numbers or []) if n]
+
+    def send(self, payload: AlertPayload) -> list[DeliveryResult]:
+        script = templates.voice_text(payload)
+        provider = settings.voice_provider.lower().strip()
+        out: list[DeliveryResult] = []
+        if not self.numbers:
+            return [DeliveryResult(self.name, "no voice recipients", "SIMULATED",
+                                   "no registered numbers for a voice call", _now())]
+        for number in self.numbers:
+            out.append(self.call(number, script, payload.language))
+        return out
+
+    def call(self, number: str, script: str, language: str = "en") -> DeliveryResult:
+        provider = settings.voice_provider.lower().strip()
+        if provider == "exotel" and settings.exotel_sid and settings.exotel_api_key:
+            return self._exotel(number, script, language)
+        if provider == "twilio" and settings.twilio_account_sid:
+            return self._twilio(number, script, language)
+        log.warning("[voice:SIMULATED] -> %s (%s): %s", number, VOICE_LOCALE.get(language, "en-IN"), script)
+        return DeliveryResult(
+            self.name, number, "SIMULATED",
+            f"stub voice gateway (VOICE_PROVIDER={provider or 'stub'}) — TTS script logged, no call placed",
+            _now(),
+        )
+
+    def _twilio(self, number: str, script: str, language: str) -> DeliveryResult:
+        twiml = (f'<Response><Say language="{VOICE_LOCALE.get(language, "en-IN")}">'
+                 f'{escape(script)}</Say><Pause length="1"/>'
+                 f'<Say language="{VOICE_LOCALE.get(language, "en-IN")}">{escape(script)}</Say></Response>')
+        url = (f"https://api.twilio.com/2010-04-01/Accounts/"
+               f"{settings.twilio_account_sid}/Calls.json")
+        try:
+            r = httpx.post(url, auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+                           data={"To": number, "From": settings.twilio_from_number, "Twiml": twiml},
+                           timeout=20)
+            r.raise_for_status()
+            return DeliveryResult(self.name, number, "SENT", f"twilio call sid={r.json().get('sid', '')}", _now())
+        except Exception as exc:
+            return DeliveryResult(self.name, number, "FAILED", f"twilio voice: {exc}", _now())
+
+    def _exotel(self, number: str, script: str, language: str) -> DeliveryResult:
+        # Exotel plays a flow; our flow URL serves the TTS text for this call.
+        from urllib.parse import quote
+        flow_url = (f"{settings.public_api_url}/api/inbound/ivr/say"
+                    f"?lang={language}&text={quote(script)}")
+        url = (f"https://{settings.exotel_subdomain}/v1/Accounts/"
+               f"{settings.exotel_sid}/Calls/connect.json")
+        try:
+            r = httpx.post(url, auth=(settings.exotel_api_key, settings.exotel_api_token),
+                           data={"From": number, "CallerId": settings.exotel_caller_id,
+                                 "Url": flow_url, "CallType": "trans"},
+                           timeout=20)
+            r.raise_for_status()
+            return DeliveryResult(self.name, number, "SENT", "exotel call queued", _now())
+        except Exception as exc:
+            return DeliveryResult(self.name, number, "FAILED", f"exotel voice: {exc}", _now())

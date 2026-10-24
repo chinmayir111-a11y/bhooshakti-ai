@@ -21,10 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Alert, Severity, Zone, ZoneRisk
-from ..notify import AlertPayload, dispatch
 from ..ws import (
-    EVENT_ALERT_DELIVERY,
-    EVENT_ALERT_NEW,
     EVENT_RISK_UPDATE,
     EVENT_SUMMARY,
     manager,
@@ -377,81 +374,21 @@ def _in_cooldown(db: Session, zone_id: int, severity: Severity) -> bool:
 
 def raise_alert(db: Session, zone: Zone, risk_score: float, confidence: float,
                 severity: Severity, factors: list[dict], source: str = "auto",
-                language: str = "en", force: bool = False) -> Alert | None:
+                language: str = "en", force: bool = False,
+                tier: str | None = None) -> Alert | None:
+    """Model- or demo-driven alert. HIGH is an ADVISORY and CRITICAL a WARNING
+    unless `tier` says otherwise (a field officer's confirmation is human
+    confirmation, so the demo's verified step passes WARNING)."""
     if not force and _in_cooldown(db, zone.id, severity):
         log.info("alert suppressed (cooldown): %s %s", zone.code, severity.value)
         return None
 
-    roads = spatial.roads_intersecting_zone(db, zone.id)
-    villages = spatial.villages_in_zone(db, zone.id)
-
-    from ..notify import templates
-
-    payload = AlertPayload(
-        alert_id=None,
-        zone_id=zone.id,
-        zone_code=zone.code,
-        zone_name=zone.name,
-        district=zone.district,
-        state=zone.state,
-        severity=severity.value,
-        risk_score=risk_score,
-        confidence=confidence,
-        contributing_factors=factors,
-        language=language,
-        deep_link=f"{settings.public_dashboard_url}/?zone={zone.id}",
-        affected_roads=[r["name"] for r in roads[:4]],
-        affected_villages=[v["name"] for v in villages[:6]],
-        source=source,
+    from . import alerting
+    return alerting.issue(
+        db, zone=zone, tier=tier or alerting.tier_for_model(severity), severity=severity,
+        risk_score=risk_score, confidence=confidence, factors=factors, source=source,
+        kind="risk", place=zone.name, language=language,
     )
-    payload.title = templates.subject(payload)
-    payload.message = templates.plain_text(payload)
-
-    alert = Alert(
-        zone_id=zone.id,
-        zone_name=zone.name,
-        severity=severity,
-        risk_score=risk_score,
-        confidence=confidence,
-        title=payload.title,
-        message=payload.message,
-        contributing_factors=factors,
-        language=language,
-        source=source,
-    )
-    db.add(alert)
-    db.flush()
-
-    results = dispatch(db, alert, payload)
-    db.commit()
-
-    manager.publish_threadsafe(EVENT_ALERT_NEW, {
-        "id": alert.id,
-        "zone_id": zone.id,
-        "zone_code": zone.code,
-        "zone_name": zone.name,
-        "district": zone.district,
-        "state": zone.state,
-        "severity": severity.value,
-        "risk_score": risk_score,
-        "confidence": confidence,
-        "contributing_factors": factors,
-        "title": payload.title,
-        "created_at": alert.created_at.isoformat() if alert.created_at else None,
-        "affected_roads": payload.affected_roads,
-        "affected_villages": payload.affected_villages,
-        "source": source,
-        "demo_data": True,
-    })
-    manager.publish_threadsafe(EVENT_ALERT_DELIVERY, {
-        "alert_id": alert.id,
-        "deliveries": [
-            {"channel": r.channel, "recipient": r.recipient,
-             "status": r.status, "detail": r.detail}
-            for r in results
-        ],
-    })
-    return alert
 
 
 # ---------------------------------------------------------------------------

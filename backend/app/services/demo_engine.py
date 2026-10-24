@@ -621,7 +621,7 @@ class DemoEngine:
                     risk_service.raise_alert(
                         db, zone, after["risk_score"], after["confidence"],
                         Severity(after["severity"]), after["contributing_factors"],
-                        source="demo-verified", force=True)
+                        source="demo-verified", force=True, tier="WARNING")
             await asyncio.to_thread(alert)
 
         with session_scope() as db:
