@@ -44,3 +44,50 @@ def db():
     finally:
         session.rollback()
         session.close()
+
+
+@pytest.fixture()
+def tx_db():
+    """A session whose commits are only savepoints inside one outer
+    transaction that is always rolled back. The escalation and alerting code
+    commits as it goes — exactly what it does in production — and the test
+    still leaves the database as it found it."""
+    from sqlalchemy.orm import Session
+
+    conn = engine.connect()
+    outer = conn.begin()
+    session = Session(bind=conn, join_transaction_mode="create_savepoint")
+    try:
+        yield session
+    finally:
+        session.close()
+        outer.rollback()
+        conn.close()
+
+
+@pytest.fixture()
+def client(tx_db):
+    """FastAPI TestClient bound to the rolled-back session. The app lifespan
+    (MQTT, schedulers) is deliberately not started."""
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+
+    def _override():
+        yield tx_db
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
+def no_siren(monkeypatch):
+    """Record siren publishes instead of sending them to a real broker."""
+    sent: list[tuple[str, dict]] = []
+    from app.mqtt_client import ingest
+    monkeypatch.setattr(ingest, "publish", lambda topic, payload, retain=False: sent.append((topic, payload)) or True)
+    return sent

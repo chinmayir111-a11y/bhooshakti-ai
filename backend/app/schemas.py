@@ -7,8 +7,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Severity = Literal["LOW", "MODERATE", "HIGH", "CRITICAL"]
-Language = Literal["en", "hi", "as"]
-IssueType = Literal["crack", "slope_movement", "road_blockage", "water_seepage"]
+Language = Literal["en", "hi", "as", "bn", "ne"]
+IssueType = Literal["landslide", "crack", "slope_movement", "road_blockage", "water_seepage",
+                    "tilted_trees", "muddy_water", "voice_report"]
 
 
 # --------------------------------------------------------------------- auth --
@@ -121,6 +122,17 @@ class CitizenReportCreate(BaseModel):
     photo_base64: str | None = Field(
         None, description="Optional data URI or bare base64 image payload."
     )
+    voice_base64: str | None = Field(
+        None, description="Optional voice note (data URI or bare base64; webm/ogg/m4a/wav/mp3)."
+    )
+    channel: Literal["web", "pwa", "pwa-offline"] = "web"
+    client_uuid: str | None = Field(
+        None, description="Set by the offline queue so a replayed report is stored once."
+    )
+
+
+class DecisionRequest(BaseModel):
+    notes: str = ""
 
 
 class ModerationRequest(BaseModel):

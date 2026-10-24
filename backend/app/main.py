@@ -24,15 +24,18 @@ from .routers import (
     alerts,
     audit,
     auth,
+    cap,
     demo,
     field,
+    inbound,
     infrastructure,
+    public,
     reports,
     risk,
     weather,
     zones,
 )
-from .services import risk_service, spatial
+from .services import escalation, risk_service, spatial
 from .ws import manager
 
 logging.basicConfig(
@@ -79,6 +82,9 @@ async def lifespan(app: FastAPI):
     log.info("starting MQTT ingest …")
     ingest.start()
 
+    if settings.escalation_enabled:
+        escalation.scheduler.start()
+
     try:
         with session_scope() as db:
             summary = spatial.dashboard_summary(db)
@@ -90,6 +96,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    escalation.scheduler.stop()
     ingest.stop()
     log.info("shutdown complete")
 
@@ -123,7 +130,7 @@ app.mount("/uploads", StaticFiles(directory=str(settings.upload_dir)), name="upl
 
 for router in (auth.router, zones.router, risk.router, alerts.router, reports.router,
                field.router, infrastructure.router, demo.router, audit.router,
-               weather.router):
+               weather.router, inbound.router, cap.router, public.router):
     app.include_router(router)
 
 
@@ -175,6 +182,12 @@ def health() -> dict:
             "error": risk_service.registry.load_error,
         },
         "websocket_clients": manager.client_count,
+        "escalation": {
+            "enabled": settings.escalation_enabled,
+            "interval_s": settings.escalation_interval_s,
+            "ticks": escalation.scheduler.ticks,
+            "last_error": escalation.scheduler.last_error,
+        },
         "email": {
             "configured": settings.email_configured,
             "test_recipient": settings.alert_test_email,

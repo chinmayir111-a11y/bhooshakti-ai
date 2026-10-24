@@ -107,7 +107,10 @@ def sensors_geojson(db: Session) -> dict[str, Any]:
     sql = text("""
         SELECT s.id, s.node_id, s.zone_id, z.code AS zone_code, z.name AS zone_name,
                s.status::text AS status, s.sensor_types, s.battery_pct,
-               s.last_seen, s.note, ST_AsGeoJSON(s.geom)::json AS geometry
+               s.last_seen, s.note, s.source,
+               EXTRACT(EPOCH FROM (NOW() - s.last_seen))::int AS seconds_since_seen,
+               (s.source = 'hardware' AND s.last_seen > NOW() - INTERVAL '120 seconds') AS live,
+               ST_AsGeoJSON(s.geom)::json AS geometry
         FROM sensor_nodes s JOIN zones z ON z.id = s.zone_id
         ORDER BY s.node_id
     """)
@@ -115,12 +118,21 @@ def sensors_geojson(db: Session) -> dict[str, Any]:
 
 
 def historical_geojson(db: Session) -> dict[str, Any]:
+    """REAL past landslides (NASA GLC / curated records). The synthetic
+    development set, when seeded with --synthetic, is returned flagged."""
     sql = text("""
-        SELECT h.id, h.zone_id, z.name AS zone_name, h.occurred_at,
-               h.rainfall_72h, h.soil_moisture_pct, h.fatalities, h.trigger,
+        SELECT h.id, h.source, h.source_event_id, h.occurred_on AS occurred_at,
+               h.title, h.state, h.trigger, h.fatalities, h.source_url,
+               h.location_accuracy, TRUE AS real,
                ST_AsGeoJSON(h.geom)::json AS geometry
-        FROM historical_landslides h JOIN zones z ON z.id = h.zone_id
-        ORDER BY h.occurred_at DESC
+        FROM historical_events h
+        UNION ALL
+        SELECT s.id, 'SIMULATED' AS source, '' AS source_event_id, s.occurred_at,
+               s.notes AS title, '' AS state, s.trigger, s.fatalities, '' AS source_url,
+               '' AS location_accuracy, FALSE AS real,
+               ST_AsGeoJSON(s.geom)::json AS geometry
+        FROM historical_landslides s
+        ORDER BY occurred_at DESC
     """)
     return _collection(db, sql)
 
@@ -397,6 +409,56 @@ def dashboard_summary(db: Session) -> dict[str, Any]:
         "sensors_total": scalar("SELECT COUNT(*) FROM sensor_nodes"),
         "sensors_failed": scalar(
             "SELECT COUNT(*) FROM sensor_nodes WHERE status = 'FAILED'"),
+        "sensors_online": scalar(
+            "SELECT COUNT(*) FROM sensor_nodes WHERE status = 'ACTIVE'"),
+        "sensors_hardware_live": scalar(
+            "SELECT COUNT(*) FROM sensor_nodes WHERE source = 'hardware' "
+            "AND last_seen > NOW() - INTERVAL '120 seconds'"),
+        "zones_at_risk": scalar("""
+            SELECT COUNT(*) FROM zones z JOIN LATERAL (
+                SELECT severity FROM zone_risk WHERE zone_id = z.id
+                ORDER BY computed_at DESC, id DESC LIMIT 1) r ON TRUE
+            WHERE r.severity IN ('HIGH', 'CRITICAL')"""),
+        "open_reports": scalar(
+            "SELECT COUNT(*) FROM citizen_reports WHERE status = 'PENDING' AND acknowledged_at IS NULL"),
+        "advisories_active": scalar(
+            "SELECT COUNT(*) FROM alerts WHERE tier = 'ADVISORY' AND status = 'ACTIVE' "
+            "AND created_at > NOW() - INTERVAL '24 hours'"),
         "field_reports_24h": scalar(
             "SELECT COUNT(*) FROM field_reports WHERE created_at > NOW() - INTERVAL '24 hours'"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Places and people, for report-driven messages
+# ---------------------------------------------------------------------------
+
+
+def nearest_place(db: Session, lat: float, lon: float, max_km: float = 15.0) -> str:
+    """The name a local would recognise for a point: nearest village within
+    `max_km`, else the nearest seeded pincode place, else the nearest zone."""
+    row = db.execute(text("""
+        SELECT name FROM (
+            SELECT name, geom FROM villages
+            UNION ALL
+            SELECT place AS name, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom FROM pincodes
+        ) p
+        WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :m)
+        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+        LIMIT 1
+    """), {"lat": lat, "lon": lon, "m": max_km * 1000}).scalar()
+    if row:
+        return row
+    zone = db.execute(text("""
+        SELECT name FROM zones
+        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) LIMIT 1
+    """), {"lat": lat, "lon": lon}).scalar()
+    return zone or f"{lat:.3f}, {lon:.3f}"
+
+
+def zone_subscribers(db: Session, zone_id: int) -> list[dict[str, Any]]:
+    """Phone numbers registered for this zone's alerts (SMS JOIN / IVR)."""
+    return [dict(r) for r in db.execute(text("""
+        SELECT phone, language, source FROM subscribers
+        WHERE zone_id = :z AND active ORDER BY id
+    """), {"z": zone_id}).mappings()]
