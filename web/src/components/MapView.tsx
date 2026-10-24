@@ -70,7 +70,18 @@ export default function MapView({
       sensors: L.layerGroup().addTo(map),
       historical: L.layerGroup().addTo(map),
     }
-    return () => { map.remove(); mapRef.current = null }
+    // The host is a flex cell on desktop but a fixed-height block on a phone.
+    // Both change size without a window resize, which Leaflet does not notice
+    // on its own — an uninvalidated map renders as grey tiles.
+    //
+    // pan:false matters. invalidateSize defaults to recentring, which shifts
+    // the view by half the size delta; because Leaflet's cached size is stale
+    // by the observer's first callback, the default would nudge the opening
+    // view on every load.
+    const ro = new ResizeObserver(() => map.invalidateSize({ pan: false }))
+    ro.observe(hostRef.current)
+
+    return () => { ro.disconnect(); map.remove(); mapRef.current = null }
   }, [])
 
   // --- zone choropleth ---------------------------------------------------
@@ -241,5 +252,5 @@ export default function MapView({
     map.flyTo([lat, lon], Math.max(map.getZoom(), 10), { duration: 0.6 })
   }, [selectedZoneId, zones])
 
-  return <div ref={hostRef} style={{ height: '100%', width: '100%' }} />
+  return <div ref={hostRef} className="map-host" />
 }

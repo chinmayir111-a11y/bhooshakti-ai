@@ -168,6 +168,7 @@ a { color: var(--navy); }
 .rail-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 
 .map-wrap { flex: 1 1 auto; position: relative; min-width: 0; }
+.map-host { height: 100%; width: 100%; }
 .leaflet-container { height: 100%; width: 100%; background: #E8EDF3; font-family: var(--font); }
 
 /* --------------------------------------------------------------- alert feed */
@@ -354,11 +355,107 @@ table.grid tr:hover td { background: var(--panel); }
 .ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex: 0 0 auto; }
 .ws-dot.live { background: var(--navy); }
 
+/* ================================================================ responsive
+   Two breakpoints. 901px and up is the desktop layout, untouched: a fixed
+   viewport frame with the alert rail beside a filling map and the panels
+   floating over it.
+
+   At 900px and below that frame stops working — the header runs out of room
+   and the map cell collapses to a strip while the absolutely positioned
+   legend keeps its full height, covering the map and the demo controls. So
+   below 900px the shell becomes an ordinary scrolling document: the map gets
+   a definite height, and the panels leave the overlay and flow underneath it.
+   ========================================================================== */
+
 @media (max-width: 900px) {
-  .dash { flex-direction: column; }
-  .rail { width: 100%; flex: 0 0 220px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .drawer { width: 100%; }
+  /* The shell stops being a fixed-height frame and scrolls as a page. */
+  html, body, #root { height: auto; }
+  .app-shell { height: auto; min-height: 100vh; }
+
+  /* Header: the wordmark gets its own row, so it can no longer collide with
+     the nav. What is left — nav, identity, sign out — shares the second row,
+     the nav scrolling sideways rather than wrapping or overflowing. */
+  .app-header {
+    height: auto; min-height: var(--header-h);
+    flex-wrap: wrap; gap: 4px 12px; padding: 8px 14px;
+  }
+  .brand { flex: 1 1 100%; }
   .brand-sub { display: none; }
+  .header-spacer { display: none; }
+  .nav {
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { display: inline-flex; align-items: center; min-height: 44px; }
+  .who { flex: 0 0 auto; }
+
+  /* Every control clears the 44px tap target. */
+  .btn, .btn.sm { min-height: 44px; }
+  .seg button { min-height: 44px; min-width: 44px; justify-content: center; }
+  .toggle-row { min-height: 44px; }
+
+  /* Demo controls wrap instead of shoving the progress bar off-screen. They
+     sit above the map in the document, so they are reachable without
+     scrolling past anything. */
+  .demo-bar { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+  .demo-bar .btn { flex: 1 1 auto; justify-content: center; }
+  .demo-bar .seg { flex: 0 0 auto; }
+  .demo-progress { flex: 1 1 100%; }
+  .demo-step-label { flex: 1 1 100%; white-space: normal; }
+
+  /* Map above the alert feed, both in page flow. */
+  .dash { flex-direction: column; }
+  .map-wrap { order: -1; flex: 0 0 auto; height: auto; }
+  .map-wrap .map-host { height: 50vh; min-height: 320px; }
+
+  /* The layer and legend panels come out of the overlay and stack under the
+     map. Nothing is dropped — it is moved. */
+  .map-panel, .map-panel.tl, .map-panel.bl {
+    position: static; width: auto;
+    top: auto; right: auto; bottom: auto; left: auto;
+    box-shadow: none; border-width: 1px 0 0 0;
+  }
+  .map-panel .as-button, .map-panel-head { min-height: 44px; }
+  /* The legend reads as a wrapped row here, not a tall column, so it costs a
+     couple of lines instead of half the viewport. */
+  .map-panel.bl .map-panel-body { display: flex; flex-wrap: wrap; gap: 2px 18px; }
+  .mini-stats { flex: 1 1 100%; grid-template-columns: repeat(2, 1fr); gap: 3px 14px; }
+
+  /* Alert feed: full width, below the map, growing with the page rather than
+     scrolling inside a 220px box. */
+  .rail {
+    width: 100%; flex: 0 0 auto; order: 0;
+    border-right: 0; border-bottom: 0; border-top: 1px solid var(--line);
+  }
+  .rail-head { min-height: 44px; }
+  .rail-scroll { flex: 0 0 auto; overflow-y: visible; }
+
+  /* Zone detail becomes a full-screen sheet; the map is no longer tall enough
+     to host a drawer beside it. */
+  .drawer {
+    position: fixed; inset: 0;
+    width: 100%; max-width: 100%; border-left: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Phone: the nav takes a row of its own, leaving identity and sign out
+     together on the second row. */
+  .nav { flex: 1 1 100%; order: 1; }
+
+  /* 2x2. auto-fit drops to three columns below ~488px and leaves the fourth
+     tile beside an empty cell. */
+  .top-strip { grid-template-columns: repeat(2, 1fr); }
+  .stat { padding: 12px 14px; }
+
+  /* Nothing on the provenance line is held on one line at this width. */
+  .provenance { padding: 8px 14px; }
+  .provenance .nowrap { white-space: normal; }
+
+  .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; }
 }
 
 /* ---------------------------------------------------- data provenance ----

@@ -105,7 +105,15 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+",
+    # Any private-LAN origin, so the dashboard and Expo app can be opened
+    # from a phone on the same wifi without re-pinning an IP that changes
+    # with every network. Covers 10/8, 172.16/12 and 192.168/16.
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1"
+        r"|10\.\d+\.\d+\.\d+"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+"
+        r"|192\.168\.\d+\.\d+):\d+"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
