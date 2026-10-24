@@ -158,19 +158,46 @@ export function PictoShield(p: P) {
   )
 }
 
-/** Soft rolling hills for the citizen header. Paints its own colours. */
+/**
+ * Citizen header: layered hills, terraced fields and a hamlet on the ridge,
+ * drawn for this project in a loose hand-inked style (slightly wobbly lines,
+ * flat fills from the palette). Sliced, not stretched, so houses keep their
+ * shape on any width; the text sits over the plain sky on the left.
+ */
 export function HillsHeader({ className }: { className?: string }) {
+  const ink = { fill: 'none', stroke: '#1E3A25', strokeWidth: 1.3, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
   return (
-    <svg className={className} viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#0F766E" /><stop offset="1" stopColor="#14B8A6" />
-        </linearGradient>
-      </defs>
-      <rect width="400" height="120" fill="url(#sky)" />
-      <path d="M0 95C60 60 110 55 170 80s120 30 230-25V120H0z" fill="#0D9488" opacity=".75" />
-      <path d="M0 110C70 85 130 70 200 92s130 20 200-15V120H0z" fill="#115E59" />
-      <path d="M0 120C80 100 150 96 230 108s110 6 170-10V120z" fill="#B45309" opacity=".85" />
+    <svg className={className} viewBox="0 0 400 140" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <rect width="400" height="140" fill="#2F5A3A" />
+      {/* far range, misty */}
+      <path d="M0 78C30 66 52 60 78 66s44 4 70-10 52-16 80-4 40 14 66 6 54-22 106-12V140H0z" fill="#4C7556" />
+      <path d="M0 78C30 66 52 60 78 66s44 4 70-10 52-16 80-4 40 14 66 6 54-22 106-12" {...ink} opacity=".35" />
+      {/* middle hill with terraces */}
+      <path d="M-4 104C40 86 78 74 120 80c30 4 48 16 80 16s56-22 96-26 76 10 108 22V140H-4z" fill="#3B7A45" />
+      <path d="M-4 104C40 86 78 74 120 80c30 4 48 16 80 16s56-22 96-26 76 10 108 22" {...ink} opacity=".55" />
+      <path d="M232 92c22-8 42-13 64-14M226 100c26-9 50-14 76-14 22 0 44 5 62 11M224 108c30-8 58-12 86-11 26 1 48 6 70 13M228 116c32-6 62-8 92-6 22 2 44 6 62 11" {...ink} opacity=".45" />
+      <path d="M40 104c18-6 36-10 54-11M30 112c24-7 48-10 72-10 14 0 28 2 40 5" {...ink} opacity=".4" />
+      {/* hamlet on the ridge */}
+      <g transform="translate(286 63)">
+        <path d="M0 14V7l6-6 6 6v7z" fill="#F4F1EA" />
+        <path d="M-1.5 7.5L6 0l7.5 7.5" fill="none" stroke="#B4532A" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="4.6" y="9" width="2.8" height="5" fill="#3E4C59" />
+        <path d="M17 15V9.5l5-4.5 5 4.5V15z" fill="#F4F1EA" />
+        <path d="M15.6 10l6.4-5.8 6.4 5.8" fill="none" stroke="#B4532A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M31 16v-4l4-3.6 4 3.6v4z" fill="#E3B23C" />
+        <path d="M29.8 12.6l5.2-4.6 5.2 4.6" fill="none" stroke="#8C3F1F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M-6 15c12 1 30 1 50-1" {...ink} />
+      </g>
+      {/* a few trees */}
+      <g fill="#24532D">
+        <path d="M262 80c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M272 78c-2-4 0-9 2-11 2 2 5 7 2 11z" />
+        <path d="M342 76c-3-5 0-12 3-14 3 2 6 9 3 14z" /><path d="M110 84c-2-4 0-9 2-11 2 2 5 7 2 11z" />
+      </g>
+      {/* front slope: terraced tea rows over red soil */}
+      <path d="M-4 126c50-10 104-16 160-14 60 2 110 12 168 8 30-2 56-6 80-10V140H-4z" fill="#24532D" />
+      <path d="M-4 134c56-8 120-11 180-9 62 2 118 9 228 1V140H-4z" fill="#B4532A" />
+      <path d="M-4 126c50-10 104-16 160-14 60 2 110 12 168 8 30-2 56-6 80-10" {...ink} opacity=".7" />
+      <path d="M20 128c18-3 36-5 52-5M96 123c20-2 40-2 58-1M190 121c24 1 46 3 70 4M300 122c20-1 40-3 60-6" fill="none" stroke="#3B7A45" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -183,3 +210,29 @@ export const ISSUE_PICTOS = {
   muddy_water: PictoMuddyWater,
   evacuate: PictoEvacuate,
 } as const
+
+/* Small UI icons (24 px grid) — used instead of emoji or symbol glyphs, which
+   render differently on every phone. */
+type I = SVGProps<SVGSVGElement> & { size?: number }
+function Icon({ size = 18, children, ...rest }: I) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: '-0.2em', flex: '0 0 auto' }} {...rest}>
+      {children}
+    </svg>
+  )
+}
+export const IconCheck = (p: I) => <Icon {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Icon>
+export const IconArrow = (p: I) => <Icon {...p}><path d="M5 12h14M13 6l6 6-6 6" /></Icon>
+export const IconBack = (p: I) => <Icon {...p}><path d="M15 5l-7 7 7 7" /></Icon>
+export const IconRefresh = (p: I) => <Icon {...p}><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></Icon>
+export const IconMail = (p: I) => <Icon {...p}><rect x="3" y="5.5" width="18" height="13" rx="2" /><path d="M3.5 7l8.5 6 8.5-6" /></Icon>
+export const IconAlert = (p: I) => <Icon {...p}><path d="M12 3.5L22 20H2z" /><path d="M12 10v4.5M12 17.3v.2" /></Icon>
+export const IconBell = (p: I) => <Icon {...p}><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></Icon>
+export const IconBellOff = (p: I) => <Icon {...p}><path d="M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2h-15" /><path d="M10 20.5a2 2 0 0 0 4 0M4 4l16 16" /></Icon>
+export const IconSun = (p: I) => <Icon {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" /></Icon>
+export const IconMoon = (p: I) => <Icon {...p}><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></Icon>
+export const IconPlay = (p: I) => <Icon {...p}><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></Icon>
+export const IconPause = (p: I) => <Icon {...p}><path d="M8 5v14M16 5v14" /></Icon>
+export const IconExternal = (p: I) => <Icon {...p}><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></Icon>
+export const IconChevron = (p: I) => <Icon {...p}><path d="M6 9l6 6 6-6" /></Icon>

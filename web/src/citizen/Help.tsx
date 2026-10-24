@@ -1,7 +1,7 @@
 /** Emergency help: two tap-to-call buttons, SMS keywords, the warning signs. */
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { ISSUE_PICTOS, PictoEvacuate, PictoPhone } from '../components/Pictograms'
+import { ISSUE_PICTOS, IconMail, PictoEvacuate, PictoPhone } from '../components/Pictograms'
 import { useLang } from '../i18n'
 import Shell, { Speak } from './Shell'
 
@@ -18,7 +18,7 @@ export default function CitizenHelp() {
         <span className="txt">{t('help_call_112')}</span>
         <Speak text={t('help_call_112')} lang={lang} />
       </a>
-      <a className="bigbtn earth" href="tel:1078">
+      <a className="bigbtn bamboo" href="tel:1078">
         <span className="ico"><PictoPhone size={48} /></span>
         <span className="txt">{t('help_call_1078')}</span>
         <Speak text={t('help_call_1078')} lang={lang} />
@@ -53,7 +53,7 @@ export default function CitizenHelp() {
         <p style={{ fontSize: 15, color: 'var(--text-muted)', marginTop: 10 }}>
           {t('help_missed_call')} {sms?.configured ? <a href={`tel:${num}`}>{num}</a> : <em>(SMS gateway not configured in this demo)</em>}
         </p>
-        {sms?.configured && <a className="cz-linkbtn" href={`sms:${num}?body=SAFE%20`}>✉ SAFE …</a>}
+        {sms?.configured && <a className="cz-linkbtn" href={`sms:${num}?body=SAFE%20`}><IconMail />SAFE …</a>}
       </div>
     </Shell>
   )

@@ -1,16 +1,17 @@
 /**
- * Report a landslide with no typing: photo → location (automatic) → optional
- * hold-to-record voice note → send. Offline, the report is queued in
+ * Report a landslide with no typing: photo, then location (automatic), then an
+ * optional hold-to-record voice note, then send. Offline, the report is queued in
  * IndexedDB and sent on reconnect; an SMS fallback opens the phone's own
  * messaging app with `LS <pincode> <note>` already filled in.
  */
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
-import { ISSUE_PICTOS, PictoCamera, PictoMic, PictoPin } from '../components/Pictograms'
+import { ISSUE_PICTOS, IconArrow, IconCheck, IconMail, PictoCamera, PictoMic, PictoPin } from '../components/Pictograms'
 import { useOnline } from '../hooks'
-import { useLang } from '../i18n'
+import { speak, useLang } from '../i18n'
 import { citizenQueue } from '../offline/citizenQueue'
 import { makeUuid } from '../offline/queue'
+import { rememberRisk } from './rain'
 import Shell, { Speak } from './Shell'
 
 type Pos = { lat: number; lon: number; accuracy: number }
@@ -88,6 +89,7 @@ export default function CitizenReport() {
     try {
       const r = await api.pincodeRisk(pin, lang)
       if (r.lat == null || r.lon == null) throw new Error()
+      rememberRisk(r)
       setPos({ lat: r.lat, lon: r.lon, accuracy: 0 })
       setGeo({ zone_name: r.zone_name ?? r.place, nearest_pincode: pin, geo_valid: r.inside_zone })
       setByPin(true); setLocState('ok')
@@ -146,21 +148,7 @@ export default function CitizenReport() {
     } finally { setBusy(false) }
   }
 
-  if (done) {
-    const head = done.queued ? t('report_queued') : t('report_sent')
-    const body = done.queued ? t('report_queued_body') : t('report_sent_body')
-    return (
-      <Shell back>
-        <div className="step" style={{ textAlign: 'center' }}>
-          <svg className="tick" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" /><path d="M30 52l13 13 27-30" /></svg>
-          <h2 style={{ justifyContent: 'center' }}>{head}<Speak text={`${head}. ${body}`} lang={lang} dark /></h2>
-          <p>{body}</p>
-          {done.id && <p className="light-meta">{t('report_ref')} #{done.id}{done.zone ? ` · ${done.zone}` : ''}</p>}
-          <button className="cz-linkbtn" style={{ marginTop: 8 }} onClick={() => window.location.reload()}>{t('report_another')}</button>
-        </div>
-      </Shell>
-    )
-  }
+  if (done) return <Done done={done} />
 
   const Picto = ISSUE_PICTOS[issue as keyof typeof ISSUE_PICTOS] ?? ISSUE_PICTOS.landslide
 
@@ -168,7 +156,7 @@ export default function CitizenReport() {
     <Shell back title={t('report')}>
       {/* 1 photo */}
       <div className={`step${photo ? ' done' : ''}`}>
-        <h2><span className="n">1</span>{t('report_take_photo')}<Speak text={`${t('report_take_photo')}. ${t('report_photo_hint')}`} lang={lang} dark />{photo && <span className="okmark">✓</span>}</h2>
+        <h2><span className="n">1</span>{t('report_take_photo')}<Speak text={`${t('report_take_photo')}. ${t('report_photo_hint')}`} lang={lang} dark />{photo && <span className="okmark"><IconCheck size={26} /></span>}</h2>
         <p>{t('report_photo_hint')}</p>
         {photo ? (
           <>
@@ -189,7 +177,7 @@ export default function CitizenReport() {
       <div className={`step${locState === 'ok' ? ' done' : ''}`}>
         <h2><span className="n">2</span>{locState === 'ok' ? t('report_located') : t('report_locating')}
           <Speak text={locState === 'ok' ? t('report_located') : t('report_locating')} lang={lang} dark />
-          {locState === 'ok' && <span className="okmark">✓</span>}
+          {locState === 'ok' && <span className="okmark"><IconCheck size={26} /></span>}
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <PictoPin size={44} style={{ color: locState === 'ok' ? 'var(--sev-low-ink)' : 'var(--text-faint)' }} />
@@ -204,7 +192,7 @@ export default function CitizenReport() {
           <div style={{ display: 'flex', gap: 8 }}>
             <input id="rpin" className="cz-input" inputMode="numeric" pattern="\d{6}" maxLength={6} value={pin}
                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder="734223" />
-            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit" disabled={pinBusy || pin.length !== 6}>→</button>
+            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit" disabled={pinBusy || pin.length !== 6} aria-label={t('safe_pincode')}><IconArrow size={22} /></button>
           </div>
         </form>
       </div>
@@ -226,7 +214,7 @@ export default function CitizenReport() {
                   onPointerDown={startRec} onPointerUp={stopRec} onPointerLeave={stopRec} onPointerCancel={stopRec}
                   aria-label={t('report_hold_record')}>
             <PictoMic size={40} />
-            {recording ? t('report_recording') : voice ? `✓ ${t('report_recorded')}` : t('report_hold_record')}
+            {recording ? t('report_recording') : voice ? <><IconCheck size={16} /> {t('report_recorded')}</> : t('report_hold_record')}
           </button>
         </div>
         <details style={{ marginTop: 12 }}>
@@ -244,10 +232,33 @@ export default function CitizenReport() {
 
       <a className="cz-linkbtn" style={{ marginTop: 12 }}
          href={`sms:${smsNumber || ''}${/iPhone|iPad/.test(navigator.userAgent) ? '&' : '?'}body=${smsBody}`}>
-        ✉ {t('report_send_sms')}
+        <IconMail />{t('report_send_sms')}
       </a>
       <p className="cz-notice" style={{ marginTop: 6 }}>{t('report_sms_hint')}</p>
       <p className="cz-notice">{t('emergency_line')}</p>
     </Shell>
+  )
+}
+
+/** Full-screen "we got it": a drawn tick, one sentence, said out loud. The
+ *  offline case is the same screen in slate with "will send when your
+ *  network returns". */
+function Done({ done }: { done: { queued: boolean; id?: number; zone?: string | null } }) {
+  const [lang, , t] = useLang()
+  const head = done.queued ? t('done_queued_title') : t('done_title')
+  const body = done.queued ? t('done_queued_body') : t('report_sent_body')
+  useEffect(() => { speak(done.queued ? `${head} ${body}` : head, lang) }, [head, body, lang, done.queued])
+  return (
+    <div className={`cz cz-done${done.queued ? ' queued' : ''}`} role="status" aria-live="assertive">
+      <svg className="tick" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45" /><path d="M30 52l13 13 27-30" /></svg>
+      <h1>{head}</h1>
+      <p>{body}</p>
+      {done.id && <p className="meta">{t('report_ref')} #{done.id}{done.zone ? ` · ${done.zone}` : ''}</p>}
+      <div className="actions">
+        <div style={{ alignSelf: 'center' }}><Speak text={`${head} ${body}`} lang={lang} label={t('tap_to_hear')} /></div>
+        <a className="cz-linkbtn" href="/">{t('done_home')}</a>
+        <button className="cz-linkbtn" onClick={() => window.location.reload()}>{t('report_another')}</button>
+      </div>
+    </div>
   )
 }

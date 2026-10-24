@@ -94,6 +94,7 @@ export interface PublicRisk {
   active_alert: { tier: Tier; title: string; created_at: string } | null
   computed_at: string | null; distance_km?: number | null
   pincode?: string; lat?: number; lon?: number
+  rain_last_hour_mm?: number | null
 }
 
 export interface ReplayEvent {

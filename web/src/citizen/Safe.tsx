@@ -1,10 +1,11 @@
-/** "Am I safe?" — one traffic-light circle, a pictogram, a spoken line. */
+/** "Is it safe near me?" — one breathing traffic-light circle, a pictogram, a spoken line. */
 import { useEffect, useState } from 'react'
 import { api, type PublicRisk, type Severity } from '../api/client'
-import { PictoEvacuate, PictoLandslide, PictoShield } from '../components/Pictograms'
+import { IconAlert, IconArrow, IconRefresh, PictoEvacuate, PictoLandslide, PictoShield } from '../components/Pictograms'
 import { SeverityShape } from '../components/Severity'
 import { useOnline } from '../hooks'
 import { speak, useLang } from '../i18n'
+import { rememberRisk } from './rain'
 import Shell, { Speak } from './Shell'
 
 export default function CitizenSafe() {
@@ -25,7 +26,7 @@ export default function CitizenSafe() {
   }
   function load(fn: () => Promise<PublicRisk>) {
     setState('loading')
-    fn().then((r) => { setRisk(r); setState('ok') }).catch(() => setState('error'))
+    fn().then((r) => { setRisk(r); rememberRisk(r); setState('ok') }).catch(() => setState('error'))
   }
   useEffect(check, [])       // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -67,21 +68,21 @@ export default function CitizenSafe() {
               {risk.place}{risk.zone_name && risk.zone_name !== risk.place ? ` · ${risk.zone_name}` : ''}
               {!risk.inside_zone && <><br />{t('safe_outside')}</>}
               {risk.computed_at && <><br />{t('safe_updated')} {new Date(risk.computed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>}
-              {!online && <><br />⚠ {t('offline_banner')}</>}
+              {!online && <><br /><IconAlert size={14} /> {t('offline_banner')}</>}
             </p>
           </>
         )}
         {state === 'nolocation' && <p className="light-line">{t('safe_no_location')}</p>}
         {state === 'error' && <p className="light-line">{t('safe_unknown')}</p>}
 
-        <button className="cz-linkbtn" style={{ marginTop: 14 }} onClick={check}>↻ {t('safe_check_again')}</button>
+        <button className="cz-linkbtn" style={{ marginTop: 14 }} onClick={check}><IconRefresh />{t('safe_check_again')}</button>
 
         <form style={{ marginTop: 14 }} onSubmit={(e) => { e.preventDefault(); if (/^\d{6}$/.test(pin)) load(() => api.pincodeRisk(pin, lang)) }}>
           <label style={{ display: 'block', fontSize: 15, color: 'var(--text-muted)', marginBottom: 6 }}>{t('safe_pincode')}</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input className="cz-input" inputMode="numeric" pattern="\d{6}" maxLength={6} value={pin}
                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder="734101" />
-            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit">→</button>
+            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit" aria-label={t('safe_pincode')}><IconArrow size={22} /></button>
           </div>
         </form>
       </div>

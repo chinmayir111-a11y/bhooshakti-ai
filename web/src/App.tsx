@@ -12,6 +12,7 @@ import CitizenHome from './citizen/Home'
 import CitizenReport from './citizen/Report'
 import CitizenSafe from './citizen/Safe'
 import CitizenHelp from './citizen/Help'
+import CitizenAbout from './citizen/About'
 
 const Control = lazy(() => import('./control/ControlApp'))
 const Replay = lazy(() => import('./pages/Replay'))
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/report" element={<CitizenReport />} />
         <Route path="/safe" element={<CitizenSafe />} />
         <Route path="/help" element={<CitizenHelp />} />
+        <Route path="/about" element={<CitizenAbout />} />
         <Route path="/login" element={<Login />} />
         <Route path="/replay" element={<Replay />} />
         <Route path="/control/*" element={<RequireAuth><Control /></RequireAuth>} />
