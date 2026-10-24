@@ -1,21 +1,14 @@
-/** Frame for every citizen screen: hills header (with rain when it is
- *  raining in the person's zone), language pills, back link, offline banner,
- *  and a quiet footer: "Demo · About". Big text, one action per screen. */
-import { useMemo, useState, type ReactNode } from 'react'
+/** Frame for every citizen screen: the ridge scene (sky, fog, rain and
+ *  lightning follow the risk where the person is), the risk as one big word,
+ *  language pills, back link, offline banner, and a quiet footer. */
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { HillsHeader, IconAlert, IconBack, PictoSpeaker } from '../components/Pictograms'
+import { IconAlert, IconBack, PictoSpeaker } from '../components/Pictograms'
 import { LANGS, canSpeak, langName, needsReview, speak, useLang, type Lang } from '../i18n'
 import { useOnline } from '../hooks'
-import { useZoneRain } from './rain'
+import Scene, { Dot } from './Scene'
+import { useZoneState } from './rain'
 import '../styles/citizen.css'
-
-function Rain() {
-  // Fixed pseudo-random layout so drops don't jump on every render.
-  const drops = useMemo(() => Array.from({ length: 28 }, (_, i) => ({
-    left: `${(i * 37) % 100}%`, delay: `${((i * 53) % 100) / 100 * 1.2}s`, dur: `${0.7 + ((i * 29) % 10) / 20}s`,
-  })), [])
-  return <div className="cz-rain" aria-hidden="true">{drops.map((d, i) => <i key={i} style={{ left: d.left, animationDelay: d.delay, animationDuration: d.dur }} />)}</div>
-}
 
 const NO_VOICE: Record<Lang, string> = {
   en: 'No voice installed for this language on this device',
@@ -37,7 +30,7 @@ export function Speak({ text, lang, dark = false, label }: { text: string; lang:
                 setState(r === 'none' ? 'none' : 'speaking')
                 window.setTimeout(() => setState('idle'), r === 'none' ? 3500 : 1500)
               }}>
-        <PictoSpeaker size={26} />
+        <PictoSpeaker size={24} />
       </button>
       {state === 'none' && (
         <span role="status" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 5, background: 'var(--text)', color: 'var(--bg)',
@@ -52,32 +45,45 @@ export function Speak({ text, lang, dark = false, label }: { text: string; lang:
 export default function Shell({ title, back = false, children }: { title?: string; back?: boolean; children: ReactNode }) {
   const [lang, setLang, t] = useLang()
   const online = useOnline()
-  const raining = useZoneRain()
+  const zone = useZoneState()
+  const raining = zone.rainMm > 0.1 || zone.state === 'danger'
+  const weather = zone.state === 'danger' ? t('scene_storm') : zone.rainMm > 0.1 ? t('scene_rain').replace('{mm}', zone.rainMm.toFixed(0)) : zone.state === 'unknown' ? '' : t('scene_clear')
+  const word = t(`scene_${zone.state}`)
+  const sub = t(`scene_sub_${zone.state}`)
+
+  const top = (
+    <>
+      <div style={{ minWidth: 0 }}>
+        {back ? (
+          <Link to="/" className="cz-back"><IconBack size={20} />{t('home')}</Link>
+        ) : (
+          <>
+            <div className="cz-brand">{t('app_name')}</div>
+            <div className="cz-loc">{zone.place ?? t('tagline')}</div>
+          </>
+        )}
+      </div>
+      {weather && <div className="cz-wx">{weather}</div>}
+    </>
+  )
+  const big = back ? (
+    <h1 className="cz-title">{title}</h1>
+  ) : (
+    <Link to="/safe" className="cz-level" aria-label={`${word}. ${sub}`}>
+      <div className="lvl"><Dot state={zone.state} /><span>{word}</span></div>
+      <div className="sub">{sub}</div>
+    </Link>
+  )
+
   return (
     <div className="cz">
-      <header className="cz-head">
-        <HillsHeader className="cz-hills" />
-        {raining && <Rain />}
-        <div className="cz-head-inner">
-          <div>
-            {back ? (
-              <Link to="/" className="cz-back"><IconBack size={20} />{t('home')}</Link>
-            ) : (
-              <>
-                <div className="cz-brand">{t('app_name')}</div>
-                <div className="cz-tag">{t('tagline')}</div>
-              </>
-            )}
-            {title && <h1 style={{ fontSize: 24, fontWeight: 800, margin: '4px 0 0', lineHeight: 1.15 }}>{title}</h1>}
-          </div>
-          <div className="cz-langs" role="group" aria-label="Language">
-            {LANGS.map((l) => (
-              <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)} lang={l}>{langName(l)}</button>
-            ))}
-          </div>
-        </div>
-      </header>
+      <Scene state={zone.state} raining={raining} compact={back} top={top} big={big} />
       <main className="cz-body">
+        <div className="cz-langs" role="group" aria-label="Language">
+          {LANGS.map((l) => (
+            <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)} lang={l}>{langName(l)}</button>
+          ))}
+        </div>
         {!online && <div className="cz-offline" role="status"><IconAlert />{t('offline_banner')}</div>}
         {children}
         {needsReview(lang) && <p className="cz-review">{t('review_note')}</p>}

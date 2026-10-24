@@ -4,36 +4,60 @@
    libraries are loaded on these screens.
    ========================================================================== */
 
-.cz { min-height: 100%; display: flex; flex-direction: column; background: var(--bg); font-size: 18px; }
-.cz h1, .cz h2, .cz-brand, .bigbtn .txt, .light-word { font-family: var(--font-head); }
+/* Night-forest theme for every citizen screen: the scene's bottom ridge is
+   the page background, so the header and the page read as one picture. */
+.cz {
+  --bg: #0F1A17; --surface: #16231F; --surface-2: #1C2B26; --surface-3: #253732;
+  --line: rgba(232,239,234,.14); --line-strong: rgba(232,239,234,.28);
+  --text: #E8EFEA; --text-muted: #AEBDB6; --text-faint: #93A39C;
+  --brand: #86C38D; --brand-ink: #A9D8AE; --brand-soft: #24402A; --brand-press: #5E9A66; --on-brand: #0F1A17;
+  --earth: #E8946A; --earth-soft: #3A2418; --highlight-soft: #3A3014; --highlight-ink: #E3B23C;
+  --sev-low-ink: #4ADE80; --sev-moderate-ink: #FDE047; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+  --shadow-md: 0 3px 12px rgba(0,0,0,.45);
+  color-scheme: dark;
+  min-height: 100%; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-size: 18px;
+}
+.cz h1, .cz h2, .cz-brand, .czbtn .txt, .light-word, .cz-level .lvl { font-family: var(--font-head); }
 
-/* Header: hand-drawn hills, houses and terraces (components/Pictograms.tsx). */
-.cz-head { position: relative; color: #fff; overflow: hidden; flex: 0 0 auto; background: #2F6B3A; }
-.cz-hills { position: absolute; inset: 0; width: 100%; height: 100%; }
-.cz-head-inner { position: relative; padding: 14px 16px 34px; display: flex; align-items: flex-start; gap: 12px; }
-.cz-brand { font-weight: 800; letter-spacing: .06em; font-size: 20px; line-height: 1.1; }
-.cz-tag { font-size: 13px; opacity: .95; margin-top: 2px; }
-.cz-langs { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; }
+/* ---- the scene */
+.scene { position: relative; height: 250px; overflow: hidden; color: #E8EFEA; transition: background 1.2s; flex: 0 0 auto; }
+.scene.compact { height: 190px; }
+.scene > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene .ridge { transition: fill 1.2s; }
+.scene .p1 { animation: par 30s ease-in-out infinite alternate; }
+.scene .p2 { animation: par 22s ease-in-out infinite alternate-reverse; }
+@keyframes par { from { transform: translateX(-6px); } to { transform: translateX(6px); } }
+.fog { position: absolute; left: -50%; width: 200%; height: 40px; border-radius: 50%; background: rgba(255,255,255,.14); filter: blur(10px); animation: fog linear infinite; pointer-events: none; }
+@keyframes fog { from { transform: translateX(0); } to { transform: translateX(25%); } }
+.scene .rain { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.scene .rain i { position: absolute; top: -30px; width: 1px; height: 22px; background: rgba(220,235,245,.55); transform: rotate(12deg); animation: fall linear infinite; opacity: 0; transition: opacity .8s; }
+.scene .rain.on i { opacity: 1; }
+@keyframes fall { from { translate: 0 -30px; } to { translate: -40px 300px; } }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.flash.on { animation: flash 6s infinite; }
+@keyframes flash { 0%, 91%, 95%, 100% { opacity: 0; } 92% { opacity: .35; } 93% { opacity: .05; } 94% { opacity: .25; } }
+.scene-top { position: absolute; left: 18px; right: 18px; top: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; z-index: 3; }
+.scene-big { position: absolute; left: 18px; right: 18px; bottom: 20px; z-index: 3; }
+.cz-brand { font-size: 13px; letter-spacing: .22em; font-weight: 700; opacity: .92; }
+.cz-loc { font-size: 12px; opacity: .78; margin-top: 3px; }
+.cz-wx { font-size: 12px; opacity: .82; text-align: right; white-space: nowrap; flex: 0 0 auto; }
+.cz-level { display: block; color: inherit; text-decoration: none; }
+.cz-level .lvl { display: flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; }
+.cz-level .sub { font-size: 13.5px; opacity: .85; margin-top: 5px; line-height: 1.4; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; animation: pulse 2.2s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--g); } 70% { box-shadow: 0 0 0 12px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.cz-title { font-size: 26px; font-weight: 700; margin: 0; line-height: 1.15; }
+.cz-back { display: inline-flex; align-items: center; gap: 6px; color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; min-height: 40px; padding: 0 2px; }
+
+/* ---- language pills: compact row under the scene */
+.cz-langs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
 .cz-langs button {
-  border: 1px solid rgba(255,255,255,.6); background: rgba(20,40,24,.28); color: #fff;
-  border-radius: 999px; padding: 5px 10px; font-size: 13px; font-weight: 700; cursor: pointer;
-  min-height: 32px;
+  border: 0.5px solid var(--line-strong); background: rgba(232,239,234,.06); color: var(--text);
+  border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 32px;
 }
-.cz-langs button.on { background: #fff; color: var(--slate); border-color: #fff; }
-.cz-back {
-  display: inline-flex; align-items: center; gap: 6px; color: #fff; text-decoration: none;
-  font-weight: 700; font-size: 16px; min-height: 44px; padding: 0 4px;
-}
+.cz-langs button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
 
-/* Rain over the header, only when the person's zone had rain in the last hour. */
-.cz-rain { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.cz-rain i {
-  position: absolute; top: -20px; width: 1.5px; height: 14px; border-radius: 1px;
-  background: rgba(255,255,255,.55); animation: cz-drop linear infinite;
-}
-@keyframes cz-drop { to { transform: translate(-10px, 150px); opacity: .2; } }
-
-.cz-body { flex: 1 1 auto; padding: 18px 16px 24px; max-width: 560px; width: 100%; margin: 0 auto; }
+.cz-body { flex: 1 1 auto; padding: 16px 14px 20px; max-width: 560px; width: 100%; margin: 0 auto; }
 .cz-notice { font-size: 13px; color: var(--text-muted); text-align: center; margin: 0 0 14px; line-height: 1.5; }
 .cz-review { font-size: 12px; color: var(--earth); text-align: center; margin: -6px 0 12px; }
 .cz-offline {
@@ -43,23 +67,40 @@
 .cz-foot { text-align: center; padding: 4px 16px 22px; font-size: 13px; }
 .cz-foot a { color: var(--text-muted); }
 
-/* Giant buttons: flat fill, darker 2px bottom edge, press moves down 2px. */
-.bigbtn {
-  display: flex; align-items: center; gap: 18px; width: 100%; text-align: left;
-  border: 0; border-bottom: 3px solid rgba(0,0,0,.28); border-radius: var(--radius);
-  padding: 18px 16px; margin-bottom: 14px;
-  color: #fff; cursor: pointer; text-decoration: none; min-height: 112px;
-  transition: transform .1s var(--ease), border-bottom-width .1s var(--ease);
-  position: relative;
+/* Calm, solid buttons: one bright main action, two quiet ones. */
+.czbtn {
+  display: flex; align-items: center; gap: 12px; border-radius: 14px; padding: 14px; margin-bottom: 10px;
+  font-size: 17px; font-weight: 600; cursor: pointer; text-decoration: none; min-height: 72px;
+  transition: transform .15s, background .3s; animation: rise .7s cubic-bezier(.2,.7,.2,1) both;
 }
-.bigbtn:active { transform: translateY(2px); border-bottom-width: 1px; margin-bottom: 16px; }
-.bigbtn .ico { flex: 0 0 auto; width: 72px; height: 72px; display: grid; place-items: center; border-radius: 12px; background: rgba(255,255,255,.14); }
-.bigbtn .txt { flex: 1 1 auto; font-size: 25px; font-weight: 800; line-height: 1.12; }
-.bigbtn .sub { display: block; font-family: var(--font); font-size: 14px; font-weight: 500; opacity: .95; margin-top: 4px; }
+.czbtn:active { transform: scale(.97); }
+@keyframes rise { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+.czbtn .ic { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; flex: 0 0 auto; }
+.czbtn .txt { flex: 1 1 auto; line-height: 1.2; }
+.czbtn .arr { opacity: .5; flex: 0 0 auto; }
+.czbtn.pri { background: #E8EFEA; color: #0F1A17; }
+.czbtn.pri .ic { background: #0F1A17; color: #E8EFEA; }
+.czbtn.pri .speakbtn { background: rgba(15,26,23,.1); color: #0F1A17; }
+.czbtn.sec { background: rgba(232,239,234,.07); border: 0.5px solid rgba(232,239,234,.16); color: #E8EFEA; }
+.czbtn.sec .ic { background: rgba(232,239,234,.08); }
+.czbtn.pri.hot { animation: rise .7s both, glow 2.6s ease-in-out 1s infinite; }
+@keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(251,146,60,0); } 50% { box-shadow: 0 0 0 4px rgba(251,146,60,.35); } }
+
+/* Big call buttons on the help screen keep the same calm shape. */
+.bigbtn {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  border: 0; border-radius: 14px; padding: 16px 14px; margin-bottom: 10px;
+  color: #fff; cursor: pointer; text-decoration: none; min-height: 84px;
+  transition: transform .15s; animation: rise .7s cubic-bezier(.2,.7,.2,1) both;
+}
+.bigbtn:active { transform: scale(.97); }
+.bigbtn .ico { flex: 0 0 auto; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 12px; background: rgba(255,255,255,.14); }
+.bigbtn .txt { flex: 1 1 auto; font-family: var(--font-head); font-size: 21px; font-weight: 700; line-height: 1.12; }
+.bigbtn .sub { display: block; font-family: var(--font); font-size: 14px; font-weight: 500; opacity: .9; margin-top: 4px; }
 .bigbtn.red    { background: #B3261E; }
 .bigbtn.earth  { background: var(--terracotta); }
 .bigbtn.green  { background: var(--tea); }
-.bigbtn.slate  { background: var(--slate); }
+.bigbtn.slate  { background: #3E4C59; }
 .bigbtn.bamboo { background: var(--bamboo); color: #2B2410; }
 .bigbtn.bamboo .ico { background: rgba(43,36,16,.10); }
 
@@ -70,6 +111,7 @@
 }
 .speakbtn:active { transform: scale(.9); }
 .speakbtn.dark { background: var(--surface-3); color: var(--brand-ink); }
+.speakbtn { background: rgba(232,239,234,.14); }
 .speakbtn.speaking { animation: speak-pulse .9s ease-in-out infinite; }
 @keyframes speak-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
 
@@ -177,11 +219,14 @@
 .cz-about li:first-child { border-top: 0; }
 
 @media (max-width: 380px) {
-  .bigbtn .txt { font-size: 22px; }
-  .bigbtn .ico { width: 60px; height: 60px; }
+  .bigbtn .txt { font-size: 19px; }
   .picto-grid { gap: 8px; }
 }
+@media (min-width: 700px) {
+  .scene { height: 300px; }
+  .scene-top, .scene-big { left: max(18px, calc(50% - 262px)); right: max(18px, calc(50% - 262px)); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .cz-rain { display: none; }
-  .light { animation: none !important; }
+  .scene *, .scene .rain i, .dot, .czbtn, .bigbtn, .light { animation: none !important; }
+  .scene .rain { display: none; }
 }

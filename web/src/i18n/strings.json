@@ -100,7 +100,18 @@
     "about_title": "About this app",
     "about_body": "BHOOSHAKTI warns hill villages in North-East India about landslides. It is a Smart India Hackathon prototype.",
     "about_replay": "Replay real past landslides",
-    "about_control": "Control room (for officials)"
+    "about_control": "Control room (for officials)",
+    "scene_safe": "Safe",
+    "scene_watch": "Stay watchful",
+    "scene_danger": "Danger",
+    "scene_unknown": "Tap to check your area",
+    "scene_sub_safe": "No landslide risk near you",
+    "scene_sub_watch": "Heavy rain on your slopes. Watch for cracks and muddy water",
+    "scene_sub_danger": "Avoid slopes and roadsides now",
+    "scene_sub_unknown": "We will show the risk for your hills here",
+    "scene_rain": "Rain · {mm} mm this hour",
+    "scene_clear": "Clear",
+    "scene_storm": "Storm"
   },
   "hi": {
     "lang_name": "हिन्दी",
@@ -187,7 +198,18 @@
     "about_title": "इस ऐप के बारे में",
     "about_body": "भूशक्ति पूर्वोत्तर भारत के पहाड़ी गाँवों को भूस्खलन की चेतावनी देता है। यह स्मार्ट इंडिया हैकाथॉन का प्रोटोटाइप है।",
     "about_replay": "असली पुराने भूस्खलन दोबारा देखें",
-    "about_control": "नियंत्रण कक्ष (अधिकारियों के लिए)"
+    "about_control": "नियंत्रण कक्ष (अधिकारियों के लिए)",
+    "scene_safe": "सुरक्षित",
+    "scene_watch": "सावधान रहें",
+    "scene_danger": "ख़तरा",
+    "scene_unknown": "अपना इलाक़ा जाँचने के लिए दबाएँ",
+    "scene_sub_safe": "आपके पास भूस्खलन का ख़तरा नहीं",
+    "scene_sub_watch": "आपकी ढलानों पर भारी बारिश। दरारों और मटमैले पानी पर नज़र रखें",
+    "scene_sub_danger": "अभी ढलानों और सड़क किनारों से दूर रहें",
+    "scene_sub_unknown": "यहाँ आपके पहाड़ों का ख़तरा दिखेगा",
+    "scene_rain": "बारिश · इस घंटे {mm} मिमी",
+    "scene_clear": "साफ़",
+    "scene_storm": "तूफ़ान"
   },
   "as": {
     "lang_name": "অসমীয়া",
@@ -274,7 +296,18 @@
     "about_title": "এই এপৰ বিষয়ে",
     "about_body": "ভূশক্তিয়ে উত্তৰ-পূব ভাৰতৰ পাহাৰীয়া গাঁওবোৰক ভূমিস্খলনৰ সতৰ্কবাণী দিয়ে। এইটো স্মাৰ্ট ইণ্ডিয়া হেকাথনৰ এটা প্ৰ'ট'টাইপ।",
     "about_replay": "প্ৰকৃত পুৰণি ভূমিস্খলন পুনৰ চাওক",
-    "about_control": "নিয়ন্ত্ৰণ কক্ষ (বিষয়াসকলৰ বাবে)"
+    "about_control": "নিয়ন্ত্ৰণ কক্ষ (বিষয়াসকলৰ বাবে)",
+    "scene_safe": "সুৰক্ষিত",
+    "scene_watch": "সাৱধান থাকক",
+    "scene_danger": "বিপদ",
+    "scene_unknown": "আপোনাৰ এলেকা চাবলৈ টিপক",
+    "scene_sub_safe": "আপোনাৰ ওচৰত ভূমিস্খলনৰ বিপদ নাই",
+    "scene_sub_watch": "আপোনাৰ ঢালত প্ৰবল বৰষুণ। ফাট আৰু বোকা পানীলৈ চকু ৰাখক",
+    "scene_sub_danger": "এতিয়াই ঢাল আৰু ৰাস্তাৰ কাষৰ পৰা আঁতৰি থাকক",
+    "scene_sub_unknown": "ইয়াত আপোনাৰ পাহাৰৰ বিপদ দেখুওৱা হ'ব",
+    "scene_rain": "বৰষুণ · এই ঘণ্টাত {mm} মিমি",
+    "scene_clear": "পৰিষ্কাৰ",
+    "scene_storm": "ধুমুহা"
   },
   "bn": {
     "lang_name": "বাংলা",
@@ -361,7 +394,18 @@
     "about_title": "এই অ্যাপ সম্পর্কে",
     "about_body": "ভূশক্তি উত্তর-পূর্ব ভারতের পাহাড়ি গ্রামগুলিকে ভূমিধসের সতর্কবার্তা দেয়। এটি স্মার্ট ইন্ডিয়া হ্যাকাথনের একটি প্রোটোটাইপ।",
     "about_replay": "আসল পুরোনো ভূমিধস আবার দেখুন",
-    "about_control": "কন্ট্রোল রুম (কর্মকর্তাদের জন্য)"
+    "about_control": "কন্ট্রোল রুম (কর্মকর্তাদের জন্য)",
+    "scene_safe": "নিরাপদ",
+    "scene_watch": "সতর্ক থাকুন",
+    "scene_danger": "বিপদ",
+    "scene_unknown": "আপনার এলাকা দেখতে চাপুন",
+    "scene_sub_safe": "আপনার কাছে ভূমিধসের ঝুঁকি নেই",
+    "scene_sub_watch": "আপনার ঢালে ভারী বৃষ্টি। ফাটল ও ঘোলা জলের দিকে নজর রাখুন",
+    "scene_sub_danger": "এখনই ঢাল ও রাস্তার ধার এড়িয়ে চলুন",
+    "scene_sub_unknown": "এখানে আপনার পাহাড়ের ঝুঁকি দেখানো হবে",
+    "scene_rain": "বৃষ্টি · এই ঘণ্টায় {mm} মিমি",
+    "scene_clear": "পরিষ্কার",
+    "scene_storm": "ঝড়"
   },
   "ne": {
     "lang_name": "नेपाली",
@@ -448,6 +492,17 @@
     "about_title": "यो एपको बारेमा",
     "about_body": "भूशक्तिले उत्तर-पूर्वी भारतका पहाडी गाउँलाई पहिरोको चेतावनी दिन्छ। यो स्मार्ट इन्डिया ह्याकाथनको प्रोटोटाइप हो।",
     "about_replay": "वास्तविक पुराना पहिरो फेरि हेर्नुहोस्",
-    "about_control": "नियन्त्रण कक्ष (अधिकारीहरूका लागि)"
+    "about_control": "नियन्त्रण कक्ष (अधिकारीहरूका लागि)",
+    "scene_safe": "सुरक्षित",
+    "scene_watch": "सतर्क रहनुहोस्",
+    "scene_danger": "खतरा",
+    "scene_unknown": "आफ्नो क्षेत्र हेर्न थिच्नुहोस्",
+    "scene_sub_safe": "तपाईं नजिक पहिरोको जोखिम छैन",
+    "scene_sub_watch": "तपाईंका भिरालामा भारी वर्षा। चिरा र धमिलो पानीमा ध्यान दिनुहोस्",
+    "scene_sub_danger": "अहिले भिरालो र सडक छेउबाट टाढा रहनुहोस्",
+    "scene_sub_unknown": "यहाँ तपाईंका पहाडको जोखिम देखाइनेछ",
+    "scene_rain": "वर्षा · यस घण्टा {mm} मिमी",
+    "scene_clear": "सफा",
+    "scene_storm": "आँधी"
   }
 }

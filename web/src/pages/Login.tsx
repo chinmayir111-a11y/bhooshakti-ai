@@ -34,7 +34,7 @@ export default function Login() {
     <div className="app-shell" style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div className="card" style={{ width: '100%', maxWidth: 780 }}>
         <div style={{ position: 'relative', height: 110, overflow: 'hidden' }}>
-          <HillsHeader className="cz-hills" />
+          <HillsHeader className="login-hills" />
           <div style={{ position: 'relative', padding: '26px 30px', color: '#fff' }}>
             <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: '.12em' }}>BHOOSHAKTI AI</div>
             <div style={{ fontSize: 13, marginTop: 5, opacity: .9 }}>Control room sign-in</div>

@@ -656,3 +656,5 @@ table.grid tr:hover td { background: var(--panel); }
   .stat.demo-menu { grid-column: 1 / -1; justify-content: flex-start; }
   .menu { right: auto; left: 10px; }
 }
+
+.login-hills { position: absolute; inset: 0; width: 100%; height: 100%; }
