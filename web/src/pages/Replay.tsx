@@ -7,9 +7,11 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type ReplayEvent, type ReplayTimeline } from '../api/client'
 import { SEVERITY_FILL, SeverityChip } from '../components/Severity'
+import { SettingsMenu } from '../components/common'
 import { prefersReducedMotion, useLocalFlag } from '../hooks'
 import { IconAlert, IconCheck, IconExternal, IconPause, IconPlay } from '../components/Pictograms'
-import type { Column, Pulse } from '../components/Map3D'
+import { rainColor, type Column, type Pulse } from '../components/Map3D'
+import { ControlCtx, useControl } from '../control/context'
 import '../styles/theme.css'
 
 const Map3D = lazy(() => import('../components/Map3D'))
@@ -34,16 +36,23 @@ function Chart({ tl, idx }: { tl: ReplayTimeline; idx: number }) {
   const days = hs.map((h, i) => ({ i, d: new Date(h.ts) })).filter(({ d }) => d.getUTCHours() === 0)
   return (
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Hourly rainfall and risk score">
+      <defs>
+        {/* Risk line: mint when low, red when high — the colour follows the value. */}
+        <linearGradient id="riskGrad" gradientUnits="userSpaceOnUse" x1="0" y1={yRisk(100)} x2="0" y2={yRisk(0)}>
+          <stop offset="0" stopColor="#F87171" /><stop offset="0.45" stopColor="#FB923C" /><stop offset="0.7" stopColor="#FACC15" /><stop offset="1" stopColor="#7FD1AE" />
+        </linearGradient>
+        <filter id="rainGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.6" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+      </defs>
       {[0, 25, 50, 75, 100].map((v) => <line key={v} className="grid" x1={L} x2={W - R} y1={yRisk(v)} y2={yRisk(v)} />)}
       {[0, 25, 50, 75, 100].map((v) => <text key={v} x={L - 6} y={yRisk(v) + 3} textAnchor="end">{v}</text>)}
       <text x={W - R + 6} y={yRain(maxRain) + 3}>{maxRain.toFixed(0)} mm</text>
       <text x={W - R + 6} y={yRain(0) + 3}>0</text>
       {hs.map((h, i) => i <= idx && h.rain_mm > 0 && (
-        <rect key={i} className="rain" x={x(i) - 1.2} width={2.4} y={yRain(h.rain_mm)} height={yRain(0) - yRain(h.rain_mm)} />
+        <rect key={i} className="rain" filter="url(#rainGlow)" x={x(i) - 1.2} width={2.4} y={yRain(h.rain_mm)} height={yRain(0) - yRain(h.rain_mm)} />
       ))}
       <line className="thr" x1={L} x2={W - R} y1={yRisk(tl.threshold)} y2={yRisk(tl.threshold)} />
       <text x={L + 4} y={yRisk(tl.threshold) - 4} style={{ fill: 'var(--sev-high-ink)', fontWeight: 700 }}>HIGH — alert fires</text>
-      <path className="risk" d={path} strokeDasharray={`${(x(idx) - L).toFixed(1)} 9999`} />
+      <path className="risk" d={path} stroke="url(#riskGrad)" pathLength={1000} strokeDasharray={`${(1000 * idx / Math.max(1, n - 1)).toFixed(1)} 9999`} />
       {refIdx >= 0 && <line className="evt" x1={x(refIdx)} x2={x(refIdx)} y1={T} y2={H - B} />}
       {refIdx >= 0 && <text x={x(refIdx) + 4} y={T + 10} style={{ fill: 'var(--sev-critical-ink)', fontWeight: 700 }}>landslide</text>}
       {faIdx >= 0 && faIdx <= idx && <circle cx={x(faIdx)} cy={yRisk(hs[faIdx].risk_score)} r={5} fill="var(--sev-high)" stroke="#fff" strokeWidth={2} />}
@@ -54,6 +63,23 @@ function Chart({ tl, idx }: { tl: ReplayTimeline; idx: number }) {
 }
 
 export default function Replay() {
+  const [dark, setDark] = useLocalFlag('bhooshakti.dark', true)
+  const [sources, setSources] = useLocalFlag('bhooshakti.sources', false)
+  const [sound, setSound] = useLocalFlag('bhooshakti.sound', false)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    return () => { document.documentElement.removeAttribute('data-theme') }
+  }, [dark])
+  return (
+    <ControlCtx.Provider value={{ dark, setDark, sources, setSources, sound, setSound }}>
+      <ReplayPage />
+    </ControlCtx.Provider>
+  )
+}
+
+function ReplayPage() {
+  const { dark, sources } = useControl()
+  const [toast, setToast] = useState<string | null>(null)
   const [events, setEvents] = useState<ReplayEvent[]>([])
   const [summary, setSummary] = useState<any>(null)
   const [selected, setSelected] = useState<number | null>(null)
@@ -129,7 +155,19 @@ export default function Replay() {
   if (refReached && tl && !shock.current.length) shock.current = [{ lat: tl.event.lat, lon: tl.event.lon, at: performance.now(), big: true }]
 
   const columns: Column[] = tl && h ? [{ lon: tl.event.lon, lat: tl.event.lat, value: h.rainfall_24h,
-    color: [14, 165, 233, 200], label: `${h.rainfall_24h.toFixed(0)} mm in the 24 h to ${fmt(h.ts)} (ERA5)` }] : []
+    color: rainColor(h.rainfall_24h, 170), label: `${h.rainfall_24h.toFixed(0)} mm in the 24 h to ${fmt(h.ts)} (ERA5)` }] : []
+
+  // The moment the line crosses HIGH while playing: one animated toast.
+  const firedShown = useRef(false)
+  useEffect(() => { firedShown.current = false; setToast(null) }, [tl])
+  useEffect(() => {
+    if (!tl || !firedReached || firedShown.current || window_ !== 'event') return
+    firedShown.current = true
+    const lead = tl.verdict.lead_hours
+    setToast(lead != null && lead >= 0 ? `Alert would have fired — ${lead} hours before the landslide` : `Alert fires — ${fmt(tl.verdict.first_alert!)}`)
+    const id = window.setTimeout(() => setToast(null), 6500)
+    return () => window.clearTimeout(id)
+  }, [firedReached, tl, window_])
 
   const lead = tl?.verdict.lead_hours
   let banner: { cls: string; text: string } | null = null
@@ -159,10 +197,12 @@ export default function Replay() {
   return (
     <div className="app-shell" style={{ minHeight: '100%' }}>
       <header className="app-header">
-        <div className="brand"><span className="brand-mark">BHOOSHAKTI AI</span><span className="brand-sub">Backtest on real landslides</span></div>
+        <div className="brand"><span className="brand-mark">BHOOSHAKTI</span><span className="brand-sub">Replay</span></div>
+        <nav className="nav"><Link to="/control">Control room</Link><Link to="/">Citizen app</Link></nav>
         <div className="header-spacer" />
-        <nav className="nav"><Link to="/">Citizen app</Link><Link to="/control">Control room</Link></nav>
+        <SettingsMenu />
       </header>
+      {toast && <div className="toasts"><div className="toast fired"><div className="toast-step">Replay</div><div className="toast-text">{toast}</div></div></div>}
       <div className="page-body">
         <div className="page-narrow stack">
           <div>
@@ -228,8 +268,8 @@ export default function Replay() {
                     {show3d ? (
                       <div className="map-box">
                         <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} columns={columns} pulses={refReached ? shock.current : []}
-                                 columnScale={140} columnRadius={500} terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2}
+                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} orbitActive={playing} columns={columns} pulses={refReached ? shock.current : []}
+                                 columnScale={140} columnRadius={500} terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2} dark={dark}
                                  basemap={satellite ? 'satellite' : 'map'} />
                         </Suspense>
                         <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5 }} className="row">
@@ -262,7 +302,7 @@ export default function Replay() {
                       <strong>{ev.title}</strong><br />
                       {ev.date}{ev.time_known ? '' : ' (date only; time not recorded)'} · {ev.state} · trigger: {ev.trigger || '—'}{ev.fatalities ? ` · ${ev.fatalities} fatalities` : ''}
                       {ev.location_accuracy && <> · location ±{ev.location_accuracy}</>}<br />
-                      <span className="provbadge real">REAL · {ev.source}</span>{' '}
+                      {sources ? <span className="provbadge real">REAL · {ev.source}</span> : <span className="tiny muted">Source: {ev.source}</span>}{' '}
                       {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer" className="verify-link">source record <IconExternal size={12} /></a>}
                       <br /><span className="muted">Weather: {tl.provenance.weather}, grid cell {tl.provenance.grid.lat?.toFixed?.(2)}, {tl.provenance.grid.lon?.toFixed?.(2)}. {tl.provenance.forecast_input}. Map: AWS terrain; the column is 24 h rain.</span>
                     </div>
@@ -287,7 +327,7 @@ export default function Replay() {
                   Held out: every event from {summary.test_year} on, plus the curated 2022/2024 records. Alert = risk at or above {summary.threshold} (HIGH).
                   Reference = recorded time, else the start of the event day. Forecast input is a statistical nowcast only — no future data.
                   Model {summary.model_version}, run {fmt(summary.generated_at, { day: '2-digit', month: 'short', year: 'numeric' })}. Counts, not an accuracy claim.
-                  <span className="provbadge real" style={{ marginLeft: 6 }}>REAL · NASA GLC</span> <span className="provbadge real">REAL · ERA5 / Open-Meteo</span>
+                  {sources && <><span className="provbadge real" style={{ marginLeft: 6 }}>REAL · NASA GLC</span> <span className="provbadge real">REAL · ERA5 / Open-Meteo</span></>}
                 </p>
               </div>
             </div>

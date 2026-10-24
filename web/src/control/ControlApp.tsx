@@ -11,7 +11,7 @@ import '../styles/theme.css'
 import { ControlCtx } from './context'
 
 export default function ControlApp() {
-  const [dark, setDark] = useLocalFlag('bhooshakti.dark', false)
+  const [dark, setDark] = useLocalFlag('bhooshakti.dark', true)
   const [sources, setSources] = useLocalFlag('bhooshakti.sources', false)
   const [sound, setSound] = useLocalFlag('bhooshakti.sound', false)
 

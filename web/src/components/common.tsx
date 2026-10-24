@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { clearSession, getUser } from '../api/client'
 import { useControl } from '../control/context'
 import { SeverityChip } from './Severity'
 
 export { SEVERITY_FILL, SEVERITY_ORDER, SeverityChip, TierChip } from './Severity'
-import { IconBell, IconBellOff, IconMoon, IconSun } from './Pictograms'
+import { IconGear, IconMoon, IconSun } from './Pictograms'
 
 export function DemoBadge({ dark = false }: { dark?: boolean }) {
   return (
@@ -22,13 +23,11 @@ export function Src({ kind, label }: { kind: 'real' | 'live' | 'sim'; label?: st
   return <span className={`provbadge ${kind}`}>{text}</span>
 }
 
-/** Control-room header: brand, nav, the three global toggles, identity. */
-export function AppHeader() {
-  const user = getUser()
-  const navigate = useNavigate()
-  const authority = user?.role === 'authority'
+/** One settings menu (gear): Show data sources, Sound, Light/Dark. Used by
+ *  the control-room header and the replay page. */
+export function SettingsMenu() {
   const { dark, setDark, sources, setSources, sound, setSound } = useControl()
-
+  const [open, setOpen] = useState(false)
   async function toggleSound() {
     const next = !sound
     setSound(next)
@@ -36,14 +35,39 @@ export function AppHeader() {
       try { await Notification.requestPermission() } catch { /* ignore */ }
     }
   }
+  return (
+    <div className="settings" onMouseLeave={() => setOpen(false)}>
+      <button className="iconbtn" aria-label="Settings" aria-expanded={open} onClick={() => setOpen((o) => !o)}><IconGear size={18} /></button>
+      {open && (
+        <div className="menu" role="menu">
+          <button role="menuitemcheckbox" aria-checked={sources} onClick={() => setSources(!sources)}>
+            <span className={`check${sources ? ' on' : ''}`} /> Show data sources
+            <span className="tiny muted" style={{ marginLeft: 'auto' }}>REAL / SIMULATED</span>
+          </button>
+          <button role="menuitemcheckbox" aria-checked={sound} onClick={toggleSound}>
+            <span className={`check${sound ? ' on' : ''}`} /> Sound on new danger
+          </button>
+          <button role="menuitemcheckbox" aria-checked={!dark} onClick={() => setDark(!dark)}>
+            {dark ? <IconSun size={15} /> : <IconMoon size={15} />} {dark ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Control-room header: brand + "Control room", nav tabs, one settings menu, identity. */
+export function AppHeader() {
+  const user = getUser()
+  const navigate = useNavigate()
+  const authority = user?.role === 'authority'
 
   return (
     <header className="app-header">
       <div className="brand">
-        <span className="brand-mark">BHOOSHAKTI AI</span>
-        <span className="brand-sub">Control room — landslide early warning, North-East India</span>
+        <span className="brand-mark">BHOOSHAKTI</span>
+        <span className="brand-sub">Control room</span>
       </div>
-      <div className="header-spacer" />
       <nav className="nav">
         <NavLink to="/control" end>Dashboard</NavLink>
         <NavLink to="/control/alerts">Alerts</NavLink>
@@ -52,26 +76,15 @@ export function AppHeader() {
         {authority && <NavLink to="/control/audit">Audit</NavLink>}
         <NavLink to="/">Citizen app</NavLink>
       </nav>
-      <div className="hdr-controls">
-        <button className={`hdr-toggle${sources ? ' on' : ''}`} onClick={() => setSources(!sources)}
-                title="Label every number with where it comes from (REAL / SIMULATED)">Show data sources</button>
-        <button className={`hdr-toggle${sound ? ' on' : ''}`} onClick={toggleSound}
-                title="Chime and browser notification on a confirmed danger" aria-label={sound ? 'Sound on' : 'Sound off'}>
-          {sound ? <IconBell size={15} /> : <IconBellOff size={15} />} {sound ? 'Sound on' : 'Sound off'}
-        </button>
-        <button className={`hdr-toggle${dark ? ' on' : ''}`} onClick={() => setDark(!dark)} title="Dark mode" aria-label="Dark mode">
-          {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
-        </button>
-      </div>
+      <div className="header-spacer" />
+      <SettingsMenu />
       {user ? (
         <>
           <div className="who">
             <strong>{user.full_name || user.username}</strong>
-            {user.designation || user.role}
+            <span>{user.designation || user.role}</span>
           </div>
-          <button className="btn ghost sm" onClick={() => { clearSession(); navigate('/login') }}>
-            Sign out
-          </button>
+          <button className="btn ghost sm" onClick={() => { clearSession(); navigate('/login') }}>Sign out</button>
         </>
       ) : (
         <button className="btn ghost sm" onClick={() => navigate('/login')}>Sign in</button>

@@ -8,12 +8,12 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
-import type { Column, Pin, Pulse, View } from '../components/Map3D'
+import { rainColor, type Column, type Layers3D, type Pin, type Pulse, type ReportPoint, type View } from '../components/Map3D'
 import {
   DeliveryChips, FactorList, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
 import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
-import { IconAlert, IconCheck, IconChevron, IconExternal, IconPause, IconPlay } from '../components/Pictograms'
+import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay } from '../components/Pictograms'
 import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
@@ -31,9 +31,8 @@ function slowConnection(): boolean {
   return !!c && (c.saveData === true || /(^|-)(2g|3g)$/.test(String(c.effectiveType || '')))
 }
 
-const LAYER_LABELS: Array<[keyof Layers, string]> = [
-  ['risk', 'Zone risk'], ['roads', 'Roads'], ['villages', 'Villages'],
-  ['sensors', 'Sensors'], ['historical', 'Real past landslides'],
+const LAYER_LABELS: Array<[keyof Layers3D, string]> = [
+  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain (24 h)'], ['roads', 'Roads & villages'],
 ]
 
 function Counter({ value, label, tint, src, srcKind }: { value: number; label: string; tint?: string; src?: string; srcKind?: 'real' | 'live' | 'sim' }) {
@@ -77,7 +76,11 @@ export default function Dashboard() {
   const [satellite, setSatellite] = useLocalFlag('bhooshakti.satellite', false)
   const [railTab, setRailTab] = useState<'alerts' | 'reports'>('alerts')
   const [layersOpen, setLayersOpen] = useState(false)
-  const [layers, setLayers] = useState<Layers>({ risk: true, roads: true, villages: true, sensors: true, historical: false })
+  const [legendOpen, setLegendOpen] = useState(false)
+  const [resetSignal, setResetSignal] = useState(0)
+  const [layers, setLayers] = useState<Layers3D>({ zones: true, reports: true, sensors: true, rain: true, roads: true })
+  // The 2D map keeps its own layer names.
+  const layers2d: Layers = { risk: layers.zones, roads: layers.roads, villages: layers.roads, sensors: layers.sensors, historical: false }
 
   const [frames, setFrames] = useState<RainFrame[]>([])
   const [frameIdx, setFrameIdx] = useState<number | null>(null)       // null = live (latest observed)
@@ -240,48 +243,66 @@ export default function Dashboard() {
   const counts = summary?.severity_counts ?? {}
   const sortedAlerts = useMemo(() => [...alerts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [alerts])
 
+  // 24 h rain per zone: the 24 frames up to the one being shown (live = latest observed).
+  const rain24ByZone = useMemo(() => {
+    if (!frames.length) return null
+    const end = (frameIdx ?? liveIdx) + 1
+    const out: Record<string, number> = {}
+    for (const f of frames.slice(Math.max(0, end - 24), end)) for (const [z, mm] of Object.entries(f.zones)) out[z] = (out[z] ?? 0) + mm
+    return out
+  }, [frames, frameIdx, liveIdx])
+
+  // Zones carry their 24 h rain so the map tooltip can show it.
+  const zonesForMap = useMemo(() => {
+    if (!zones?.features) return zones
+    return { ...zones, features: zones.features.map((f: any) => ({ ...f, properties: { ...f.properties, rain24: rain24ByZone?.[String(f.properties.id)] ?? null } })) }
+  }, [zones, rain24ByZone])
+
   const columns: Column[] = useMemo(() => {
-    if (!layers.risk || !zones?.features || !rainByZone) return []
+    if (!zones?.features || !rain24ByZone) return []
     return zones.features.map((f: any) => {
-      const mm = rainByZone[String(f.properties.id)] ?? 0
-      const sev = (f.properties.severity || 'LOW') as Severity
-      const hex = SEVERITY_FILL[sev]
-      const n = parseInt(hex.slice(1), 16)
-      return { lon: f.properties.centroid[1], lat: f.properties.centroid[0], value: mm,
-               color: [(n >> 16) & 255, (n >> 8) & 255, n & 255, 200] as [number, number, number, number],
-               label: `${f.properties.name}: ${mm.toFixed(1)} mm this hour (Open-Meteo)` }
-    }).filter((c: Column) => c.value > 0.02)
-  }, [zones, rainByZone, layers.risk])
+      const mm = rain24ByZone[String(f.properties.id)] ?? 0
+      return { lon: f.properties.centroid[1], lat: f.properties.centroid[0], value: mm, color: rainColor(mm),
+               label: `${f.properties.name}: ${mm.toFixed(0)} mm in 24 h (Open-Meteo)` }
+    }).filter((c: Column) => c.value > 0.5)
+  }, [zones, rain24ByZone])
 
   const pins: Pin[] = useMemo(() => {
-    if (!layers.sensors || !sensors?.features) return []
-    return sensors.features.map((f: any) => ({
-      lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
-      live: !!f.properties.live, failed: f.properties.status === 'FAILED', source: f.properties.source,
-      label: `${f.properties.node_id} · ${f.properties.source === 'hardware' ? (f.properties.live ? 'LIVE hardware' : 'hardware, offline') : 'simulated'}${f.properties.latest ? ` · tilt ${f.properties.latest.tilt_deg ?? '—'}° soil ${f.properties.latest.soil_moisture_pct ?? '—'}%` : ''}`,
-    }))
-  }, [sensors, layers.sensors])
+    if (!sensors?.features) return []
+    return sensors.features.map((f: any) => {
+      const latest = f.properties.latest
+      const anomalous = !!latest && ((latest.tilt_deg ?? 0) >= 1.5 || (latest.soil_moisture_pct ?? 0) >= 90)
+      return {
+        lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+        live: !!f.properties.live, failed: f.properties.status === 'FAILED', source: f.properties.source, anomalous,
+        label: `${f.properties.node_id} · ${f.properties.source === 'hardware' ? (f.properties.live ? 'LIVE hardware' : 'hardware, offline') : 'simulated'}${latest ? ` · tilt ${latest.tilt_deg ?? '—'}° soil ${latest.soil_moisture_pct ?? '—'}%` : ''}`,
+      }
+    })
+  }, [sensors])
+
+  const reportPoints: ReportPoint[] = useMemo(() => escalations.filter((r) => r.lat && r.lon)
+    .map((r) => ({ id: r.id, lat: r.lat, lon: r.lon, label: r.issue_label })), [escalations])
 
   const hardwareLive = sensors?.features?.filter((f: any) => f.properties.live) ?? []
 
   return (
     <div className="page">
-      {/* -------------------------------------------------- right now */}
-      <RightNow summary={summary} escalations={escalations} zones={zones} alerts={alerts}
-                onZone={selectZone} onReports={() => setRailTab('reports')} />
-
-      {/* -------------------------------------------------- top strip */}
-      <div className="top-strip">
-        <Counter value={summary?.zones_at_risk ?? 0} label="Zones at risk (HIGH+)" tint={SEVERITY_FILL.HIGH} src="model on REAL weather" srcKind="real" />
-        <Counter value={summary?.open_reports ?? 0} label="Reports waiting" tint="var(--earth-fill)" src="REAL · public" srcKind="real" />
-        <Counter value={summary?.alerts_24h ?? 0} label="Alerts · 24h" tint={SEVERITY_FILL.CRITICAL} src={`${summary?.advisories_active ?? 0} be-alert active`} srcKind="sim" />
-        <Counter value={summary?.sensors_online ?? 0} label="Sensors online" tint="var(--brand)" src={hardwareLive.length ? `${hardwareLive.length} LIVE hardware` : 'SIMULATED'} srcKind={hardwareLive.length ? 'live' : 'sim'} />
+      {/* -------------------------------------------------- status row: pill + counters + demo */}
+      <div className="status-row">
+        <RightNow summary={summary} escalations={escalations} zones={zones} alerts={alerts}
+                  onZone={selectZone} onReports={() => setRailTab('reports')} />
+        <div className="counters">
+          <Counter value={summary?.zones_at_risk ?? 0} label="Zones at risk" tint={SEVERITY_FILL.HIGH} src="model on REAL weather" srcKind="real" />
+          <Counter value={summary?.open_reports ?? 0} label="Reports waiting" tint="var(--earth-fill)" src="REAL · public" srcKind="real" />
+          <Counter value={summary?.alerts_24h ?? 0} label="Alerts · 24h" tint={SEVERITY_FILL.CRITICAL} src={`${summary?.advisories_active ?? 0} be-alert active`} srcKind="sim" />
+          <Counter value={summary?.sensors_online ?? 0} label="Sensors online" tint="var(--brand)" src={hardwareLive.length ? `${hardwareLive.length} LIVE hardware` : 'SIMULATED'} srcKind={hardwareLive.length ? 'live' : 'sim'} />
+        </div>
         {isAuthority && (
-          <div className="stat demo-menu">
+          <div className="demo-menu">
             <button className="btn ghost sm" onClick={() => setDemoOpen((o) => !o)} aria-expanded={demoOpen}>
               Demo <IconChevron size={14} />
             </button>
-            {demo.running && <span className="tiny muted">{demo.step}/{demo.total_steps} · {demo.label}</span>}
+            {demo.running && <span className="tiny muted nowrap">{demo.step}/{demo.total_steps}</span>}
             {demoOpen && (
               <div className="menu" onMouseLeave={() => setDemoOpen(false)}>
                 <button disabled={demo.running || busy !== null} onClick={() => { setDemoOpen(false); run('Simulate', () => api.simulate(speed)) }}>
@@ -406,73 +427,78 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        <div className="map-wrap">
+        <div className={`map-wrap${zoneDetail ? ' has-drawer' : ''}`}>
           {mode ? (
             <MapView zones={zones} infrastructure={infrastructure} sensors={sensors} historical={historical}
-                     layers={layers} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
+                     layers={layers2d} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
                      rain={rainByZone} pulses={pulses} />
           ) : (
             <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-              <Map3D zones={layers.risk ? zones : null} roads={layers.roads ? infrastructure?.roads : null}
-                     villages={layers.villages ? infrastructure?.villages : null}
-                     columns={columns} pins={pins} pulses={pulses}
+              <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
+                     reports={reportPoints} columns={columns} pins={pins} pulses={pulses} layers={layers}
                      selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark}
-                     basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} />
+                     basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal} />
             </Suspense>
           )}
 
-          <div className="map-mode">
+          {/* One compact control group, top-right; MapLibre's zoom/compass sit under it. */}
+          <div className="map-ctrl">
             <div className="seg">
-              <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="OpenFreeMap vector tiles + AWS terrain + deck.gl">3D terrain</button>
-              <button className={mode ? 'on' : ''} onClick={() => setMode(true)} title="Leaflet raster tiles — for slow networks and low-end phones">2D / low data</button>
+              <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="Vector tiles + terrain">3D</button>
+              <button className={mode ? 'on' : ''} onClick={() => setMode(true)} title="Flat raster map — for slow networks and low-end devices">2D</button>
             </div>
             {!mode && (
               <div className="seg">
                 <button className={!satellite ? 'on' : ''} onClick={() => setSatellite(false)}>Map</button>
-                <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)} title="Esri World Imagery on the real terrain">Satellite</button>
+                <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)} title="Esri World Imagery on the terrain">Satellite</button>
               </div>
             )}
-          </div>
-
-          <div className={`map-panel tl${layersOpen ? '' : ' is-collapsed'}`}>
-            <button className="map-panel-head as-button" type="button" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}>
-              <span className="label">Layers</span><span className="chevron" style={{ transform: layersOpen ? 'rotate(180deg)' : 'none' }}><IconChevron size={14} /></span>
-            </button>
-            {layersOpen && (
-              <div className="map-panel-body">
-                {LAYER_LABELS.map(([key, label]) => (
-                  <label className="toggle-row" key={key}>
-                    <input type="checkbox" checked={layers[key]} onChange={(e) => setLayers((l) => ({ ...l, [key]: e.target.checked }))} />{label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="map-panel bl">
-            <div className="map-panel-head"><span className="label">Risk severity</span></div>
-            <div className="map-panel-body">
-              {SEVERITY_ORDER.slice().reverse().map((sev) => (
-                <div className="legend-row" key={sev}><SeverityShape value={sev} size={16} />{sev}</div>
-              ))}
-              <div className="legend-row" style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 6 }}>
-                <span style={{ width: 16, height: 16, borderRadius: 3, background: '#0EA5E9', opacity: .7, display: 'inline-block' }} /> Rain this hour {sources && <Src kind="real" label="REAL · Open-Meteo" />}
-              </div>
-              <div className="legend-row"><span className="live-dot" /> LIVE hardware sensor</div>
-              <div className="legend-row"><span style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', display: 'inline-block', margin: '0 3px' }} /> Simulated sensor</div>
-              <div className="legend-row"><span className="pulse-marker" style={{ transform: 'scale(.7)' }} /> New citizen report</div>
-              {summary && (
-                <div className="mini-stats">
-                  <div><span>{counts.CRITICAL ?? 0}</span> critical</div><div><span>{counts.HIGH ?? 0}</span> high</div>
-                  <div><span>{counts.MODERATE ?? 0}</span> moderate</div><div><span>{counts.LOW ?? 0}</span> low</div>
-                  <div><span>{summary.villages_cut_off}</span> villages cut off</div><div><span>{summary.roads_flagged}</span> roads flagged</div>
+            <div className="layers-menu" onMouseLeave={() => setLayersOpen(false)}>
+              <button className={`iconbtn${layersOpen ? ' on' : ''}`} aria-label="Layers" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}><IconLayers size={16} /> Layers</button>
+              {layersOpen && (
+                <div className="menu">
+                  {LAYER_LABELS.map(([key, label]) => (
+                    <button key={key} role="menuitemcheckbox" aria-checked={layers[key]} onClick={() => setLayers((l) => ({ ...l, [key]: !l[key] }))}>
+                      <span className={`check${layers[key] ? ' on' : ''}`} />{label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
+            {!mode && <button className="iconbtn" aria-label="Reset view" title="Reset view" onClick={() => setResetSignal((n) => n + 1)}><IconCompass size={16} /></button>}
+          </div>
+
+          {/* Legend, bottom-left, closed by default: just the four severity dots. */}
+          <div className={`legend${legendOpen ? ' open' : ''}`}>
+            <button className="legend-head" aria-expanded={legendOpen} onClick={() => setLegendOpen((o) => !o)}>
+              {SEVERITY_ORDER.slice().reverse().map((sev) => <SeverityShape key={sev} value={sev} size={14} title={sev} />)}
+              <span className="tiny muted" style={{ marginLeft: 4 }}>{legendOpen ? 'Legend' : ''}</span>
+              <IconChevron size={14} style={{ transform: legendOpen ? 'rotate(180deg)' : 'none' }} />
+            </button>
+            {legendOpen && (
+              <div className="legend-body">
+                {SEVERITY_ORDER.slice().reverse().map((sev) => <div className="legend-row" key={sev}><SeverityShape value={sev} size={14} />{sev}</div>)}
+                <div className="legend-row" style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 6 }}>
+                  <span className="sw" style={{ background: 'linear-gradient(90deg,#4A90B8,#E3B23C,#DC2626)' }} /> Rain column: 24 h total {sources && <Src kind="real" label="REAL · Open-Meteo" />}
+                </div>
+                <div className="legend-row"><span className="sw dot-red" /> Citizen report (number = several)</div>
+                <div className="legend-row"><span className="sw dia mint" /> LIVE hardware sensor</div>
+                <div className="legend-row"><span className="sw dia" /> Simulated sensor · <span className="sw ring" /> anomaly</div>
+                <div className="legend-row"><span className="sw" style={{ background: '#FB923C', height: 4 }} /> Blocked road · house + orange dot = cut-off village</div>
+                {summary && (
+                  <div className="mini-stats">
+                    <div><span>{counts.CRITICAL ?? 0}</span> critical</div><div><span>{counts.HIGH ?? 0}</span> high</div>
+                    <div><span>{counts.MODERATE ?? 0}</span> moderate</div><div><span>{counts.LOW ?? 0}</span> low</div>
+                    <div><span>{summary.villages_cut_off}</span> villages cut off</div><div><span>{summary.roads_flagged}</span> roads flagged</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {frames.length > 0 && (
             <div className="rain-slider" title="Hourly rainfall per zone from Open-Meteo (ERA5 + forecast). Drag or play.">
+              <span className="label nowrap">Rain</span>
               <button className="play" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause' : 'Play'}>{playing ? <IconPause size={14} /> : <IconPlay size={14} />}</button>
               <input type="range" min={0} max={frames.length - 1} value={frameIdx ?? liveIdx}
                      onChange={(e) => { setPlaying(false); setFrameIdx(Number(e.target.value)) }} />
@@ -516,10 +542,10 @@ function RightNow({ summary, escalations, zones, alerts, onZone, onReports }: {
   const goLabel = danger ? `Open ${danger.zone_name}` : worst ? `Open ${worst.properties.name}` : waiting ? 'Open reports' : ''
   if (!summary) return null
   return (
-    <div className={`rightnow${calm ? ' calm' : ''}`} role="status">
-      {calm ? <IconCheck size={18} /> : <IconAlert size={18} />}
-      <span className="rightnow-text">{calm ? 'All zones calm · no reports waiting' : parts.join(' · ')}</span>
-      {go && <button className="btn sm" onClick={go}>{goLabel}</button>}
+    <div className={`status-pill${calm ? ' calm' : danger ? ' danger' : ''}`} role="status">
+      {calm ? <IconCheck size={16} /> : <IconAlert size={16} />}
+      <span className="status-text">{calm ? 'All zones calm · no reports waiting' : parts.join(' · ')}</span>
+      {go && <button className="btn sm" onClick={go}>{goLabel.length > 22 ? 'Open' : goLabel}</button>}
     </div>
   )
 }
