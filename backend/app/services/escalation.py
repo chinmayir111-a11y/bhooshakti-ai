@@ -194,11 +194,37 @@ def notify_moderators(db: Session, report: CitizenReport, level: int,
     return deliveries
 
 
+def _open_advisory_nearby(db: Session, report: CitizenReport, now: datetime) -> Alert | None:
+    """An ACTIVE advisory already out for the same incident: same zone, its
+    report within the cluster radius, issued in the last hour."""
+    row = db.execute(text("""
+        SELECT a.id FROM alerts a JOIN citizen_reports r ON r.id = a.report_id
+        WHERE a.tier = 'ADVISORY' AND a.status = 'ACTIVE' AND a.zone_id = :z
+          AND a.created_at > :since
+          AND ST_DWithin(r.geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :rad)
+        ORDER BY a.created_at DESC LIMIT 1
+    """), {"z": report.zone_id, "since": now - timedelta(minutes=corroboration.CLUSTER_WINDOW_MIN),
+           "lon": report.lon, "lat": report.lat, "rad": corroboration.CLUSTER_RADIUS_M}).first()
+    return db.get(Alert, row[0]) if row else None
+
+
 def issue_advisory(db: Session, report: CitizenReport, reason: str, now: datetime) -> Alert | None:
     zone = _zone(db, report)
     if zone is None:
         log.info("report %s is outside every zone — no zone to advise", report.id)
         return None
+
+    # A second report of the same slide joins the advisory already out; the
+    # public is not texted twice for one incident.
+    existing = _open_advisory_nearby(db, report, now)
+    if existing is not None:
+        report.advisory_alert_id = existing.id
+        audit(db, SYSTEM, "advisory_joined", "citizen_report", report.id,
+              detail={"alert_id": existing.id, "corroboration_score": report.corroboration_score,
+                      "reasons": report.corroboration_reasons, "trigger": reason}, commit=False)
+        db.commit()
+        return existing
+
     place = spatial.nearest_place(db, report.lat, report.lon)
     current = db.execute(text("""
         SELECT risk_score, severity::text AS severity, confidence FROM zone_risk
@@ -389,7 +415,13 @@ def dismiss(db: Session, report: CitizenReport, principal: Principal, notes: str
     follow_up = None
     advisory = db.get(Alert, report.advisory_alert_id) if report.advisory_alert_id else None
     zone = _zone(db, report)
-    if advisory and zone:
+    # Other open reports sharing this advisory keep it alive: the all-clear
+    # only goes out when the last of them is dismissed.
+    others_open = bool(advisory) and db.execute(text("""
+        SELECT 1 FROM citizen_reports WHERE advisory_alert_id = :a AND id <> :r
+          AND status = 'PENDING' LIMIT 1
+    """), {"a": advisory.id if advisory else 0, "r": report.id}).first() is not None
+    if advisory and zone and not others_open:
         place = spatial.nearest_place(db, report.lat, report.lon)
         follow_up = alerting.issue(
             db, zone=zone, tier=AlertTier.ADVISORY.value, severity=Severity.LOW,

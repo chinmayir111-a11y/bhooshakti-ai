@@ -17,6 +17,19 @@ from .conftest import requires_db
 XSD = xmlschema.XMLSchema(str(Path(__file__).parent / "fixtures" / "CAP-v1.2.xsd"))
 
 
+@pytest.fixture(autouse=True)
+def clean_advisories(request, tx_db):
+    """Advisories left ACTIVE by a demo run would make a new report join them
+    instead of issuing its own. Close them inside the test transaction, and
+    detach any open demo reports from them so a dismiss sends its all-clear."""
+    # Open demo reports would be worked by tick() too and could issue the
+    # advisory this test's report then joins: mark them seen for the test.
+    tx_db.execute(text("UPDATE citizen_reports SET advisory_alert_id = NULL, acknowledged_at = NOW(), "
+                       "acknowledged_by = 'test-fixture' WHERE status = 'PENDING' AND acknowledged_at IS NULL"))
+    tx_db.execute(text("UPDATE alerts SET status = 'SUPERSEDED' WHERE tier = 'ADVISORY' AND status = 'ACTIVE'"))
+    tx_db.flush()
+
+
 def test_cap_time_has_an_explicit_offset_never_z():
     s = cap_time(datetime(2026, 7, 1, 6, 30, tzinfo=timezone.utc))
     assert s == "2026-07-01T12:00:00+05:30"

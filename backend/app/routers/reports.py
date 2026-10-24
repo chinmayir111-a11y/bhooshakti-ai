@@ -235,4 +235,8 @@ def moderate(report_id: int, body: ModerationRequest, request: Request,
 def geo_check(lat: float, lon: float, db: Session = Depends(get_db)) -> dict:
     """Used by the citizen form to tell the reporter, before they submit,
     whether their location falls inside a monitored zone."""
-    return {**spatial.locate_point(db, lat, lon), "demo_data": True}
+    near = spatial.nearest_pincode(db, lat, lon)
+    return {**spatial.locate_point(db, lat, lon),
+            "nearest_pincode": near["pincode"] if near else None,
+            "nearest_pincode_place": near["place"] if near else None,
+            "demo_data": True}

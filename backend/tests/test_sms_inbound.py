@@ -74,6 +74,14 @@ def test_pincode_outside_zones_has_no_zone(tx_db):
     assert loc["place"] == "Kohima" and loc["zone_id"] is None
 
 
+@requires_db
+def test_geo_check_offers_the_nearest_pincode_for_the_sms_fallback(client):
+    r = client.get("/reports/geo-check?lat=26.852&lon=88.327").json()     # Tindharia post office
+    assert r["nearest_pincode"] == "734223" and r["nearest_pincode_place"] == "Tindharia"
+    far = client.get("/reports/geo-check?lat=15.0&lon=88.0").json()         # Bay of Bengal
+    assert far["nearest_pincode"] is None
+
+
 # --------------------------------------------------------------- webhooks
 
 

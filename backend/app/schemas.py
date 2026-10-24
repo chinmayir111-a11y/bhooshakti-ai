@@ -105,6 +105,11 @@ class AlertOut(BaseModel):
     created_at: datetime
     acknowledged: bool
     source: str
+    tier: str = "WARNING"
+    status: str = "ACTIVE"
+    kind: str = "risk"
+    report_id: int | None = None
+    parent_alert_id: int | None = None
     deliveries: list[DeliveryOut]
     demo_data: bool = True
 

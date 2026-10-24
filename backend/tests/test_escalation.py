@@ -17,6 +17,18 @@ from .conftest import requires_db
 pytestmark = requires_db
 
 
+@pytest.fixture(autouse=True)
+def clean_advisories(tx_db):
+    """Advisories left ACTIVE by a demo run would make a new report join them
+    instead of issuing its own. Close them inside the test transaction."""
+    # Open demo reports would be worked by tick() too and could issue the
+    # advisory this test's report then joins: mark them seen for the test.
+    tx_db.execute(text("UPDATE citizen_reports SET advisory_alert_id = NULL, acknowledged_at = NOW(), "
+                       "acknowledged_by = 'test-fixture' WHERE status = 'PENDING' AND acknowledged_at IS NULL"))
+    tx_db.execute(text("UPDATE alerts SET status = 'SUPERSEDED' WHERE tier = 'ADVISORY' AND status = 'ACTIVE'"))
+    tx_db.flush()
+
+
 @pytest.fixture()
 def pin_score(monkeypatch):
     """pin_score(n) makes every report score exactly n."""
@@ -46,6 +58,12 @@ def _report(db, created: datetime, zone_code: str = "DJ-04"):
     return r
 
 
+def _mine(actions, report):
+    """tick() works every open report in the database, including live demo
+    data; the assertions are about this test's report only."""
+    return [a for a in actions if a["report_id"] == report.id]
+
+
 def _audit(db, report_id: int) -> list[str]:
     return [r[0] for r in db.execute(text(
         "SELECT action FROM audit_log WHERE resource = 'citizen_report' AND resource_id = :i ORDER BY id"
@@ -58,21 +76,21 @@ def test_ladder_climbs_every_ten_minutes_until_acknowledged(tx_db, pin_score, no
     t0 = datetime.now(timezone.utc)
     r = _report(tx_db, t0)
 
-    acts = escalation.tick(tx_db, now=t0)
+    acts = _mine(escalation.tick(tx_db, now=t0), r)
     assert acts == [{"report_id": r.id, "action": "notify_moderator", "level": 0}]
     assert r.escalation_level == 1
 
-    assert escalation.tick(tx_db, now=t0 + timedelta(minutes=9, seconds=59)) == []
+    assert _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=9, seconds=59)), r) == []
 
-    acts = escalation.tick(tx_db, now=t0 + timedelta(minutes=10))
+    acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=10)), r)
     assert acts == [{"report_id": r.id, "action": "escalate", "level": 1}]
 
-    acts = escalation.tick(tx_db, now=t0 + timedelta(minutes=20))
+    acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=20)), r)
     assert acts == [{"report_id": r.id, "action": "escalate", "level": 2}]
     assert r.advisory_alert_id is None, "score 40 must never auto-advise"
 
     # Roster has three levels; the ladder stops at the top instead of looping.
-    assert escalation.tick(tx_db, now=t0 + timedelta(minutes=45)) == []
+    assert _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=45)), r) == []
     assert _audit(tx_db, r.id).count("escalate") == 2
 
 
@@ -84,7 +102,7 @@ def test_acknowledged_report_stops_the_clock(tx_db, pin_score, no_siren):
     r = _report(tx_db, t0)
     escalation.acknowledge(tx_db, r, Principal(1, "authority", "authority"))
     tx_db.flush()
-    assert escalation.tick(tx_db, now=t0 + timedelta(minutes=30)) == []
+    assert _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=30)), r) == []
     assert r.advisory_alert_id is None
 
 
@@ -99,7 +117,7 @@ def test_score_60_advises_at_twenty_minutes_not_before(tx_db, pin_score, no_sire
     escalation.tick(tx_db, now=t0 + timedelta(minutes=19, seconds=59))
     assert r.advisory_alert_id is None
 
-    acts = escalation.tick(tx_db, now=t0 + timedelta(minutes=20))
+    acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=20)), r)
     assert {"advisory"} <= {a["action"] for a in acts}
     alert = tx_db.get(Alert, r.advisory_alert_id)
     assert alert.tier == "ADVISORY" and alert.status == "ACTIVE"
@@ -125,7 +143,7 @@ def test_score_85_advises_immediately(tx_db, pin_score, no_siren):
     pin_score(85)
     t0 = datetime.now(timezone.utc)
     r = _report(tx_db, t0)
-    acts = escalation.tick(tx_db, now=t0 + timedelta(seconds=30))
+    acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(seconds=30)), r)
     assert [a["action"] for a in acts] == ["notify_moderator", "advisory"]
     assert r.advisory_alert_id is not None
 
@@ -137,7 +155,7 @@ def test_outside_every_zone_escalates_but_cannot_advise(tx_db, pin_score, no_sir
     r = _report(tx_db, t0)
     r.zone_id = None
     tx_db.flush()
-    acts = escalation.tick(tx_db, now=t0 + timedelta(minutes=25))
+    acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=25)), r)
     assert "advisory" not in {a["action"] for a in acts}
     assert r.escalation_level >= 2
 
@@ -198,3 +216,24 @@ def test_schedule_reports_the_next_step_for_countdowns(tx_db, pin_score, no_sire
     assert s["open"] and s["level"] == 1
     assert datetime.fromisoformat(s["next_step_at"]) == t0 + timedelta(minutes=10)
     assert datetime.fromisoformat(s["advisory_at"]) == t0 + timedelta(minutes=20)
+
+
+def test_second_report_of_the_same_slide_joins_the_open_advisory(tx_db, pin_score, no_siren):
+    from app.deps import Principal
+    from app.models import Alert
+    from app.services import escalation
+    pin_score(90)
+    t0 = datetime.now(timezone.utc)
+    a = _report(tx_db, t0)
+    b = _report(tx_db, t0 + timedelta(minutes=3))
+    escalation.tick(tx_db, now=t0 + timedelta(minutes=4))
+    assert a.advisory_alert_id is not None
+    assert b.advisory_alert_id == a.advisory_alert_id, "one incident, one advisory"
+    assert "advisory_joined" in _audit(tx_db, b.id)
+
+    # Dismissing one of the two does not all-clear the zone while the other is open.
+    me = Principal(1, "authority", "authority")
+    assert escalation.dismiss(tx_db, b, me) is None
+    assert tx_db.get(Alert, a.advisory_alert_id).status == "ACTIVE"
+    follow = escalation.dismiss(tx_db, a, me)
+    assert follow is not None and tx_db.get(Alert, a.advisory_alert_id).status == "DISMISSED"

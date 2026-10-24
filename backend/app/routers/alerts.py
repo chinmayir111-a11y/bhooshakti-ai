@@ -41,6 +41,12 @@ def _serialise(db: Session, alert: Alert) -> dict:
         "created_at": alert.created_at,
         "acknowledged": alert.acknowledged,
         "source": alert.source,
+        "tier": alert.tier,
+        "status": alert.status,
+        "kind": {"auto-advisory": "advisory", "moderator-confirmed": "confirmed",
+                 "all-clear": "all_clear"}.get(alert.source, "risk"),
+        "report_id": alert.report_id,
+        "parent_alert_id": alert.parent_alert_id,
         "deliveries": [
             {"channel": d.channel, "recipient": d.recipient, "status": d.status.value,
              "detail": d.detail, "language": d.language, "sent_at": d.sent_at}

@@ -462,3 +462,19 @@ def zone_subscribers(db: Session, zone_id: int) -> list[dict[str, Any]]:
         SELECT phone, language, source FROM subscribers
         WHERE zone_id = :z AND active ORDER BY id
     """), {"z": zone_id}).mappings()]
+
+
+def nearest_pincode(db: Session, lat: float, lon: float, max_km: float = 40.0) -> dict[str, Any] | None:
+    """Closest seeded pincode, so the citizen app can pre-fill `LS <pincode>`."""
+    row = db.execute(text("""
+        SELECT pincode, place, district,
+               ST_Distance(ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography,
+                           ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography) / 1000.0 AS km
+        FROM pincodes
+        ORDER BY ST_SetSRID(ST_MakePoint(lon, lat), 4326) <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+        LIMIT 1
+    """), {"lat": lat, "lon": lon}).mappings().first()
+    if row is None or float(row["km"]) > max_km:
+        return None
+    return {"pincode": row["pincode"], "place": row["place"], "district": row["district"],
+            "distance_km": round(float(row["km"]), 1)}
