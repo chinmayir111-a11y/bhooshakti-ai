@@ -63,17 +63,56 @@ export function canSpeak(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
-export function speak(text: string, lang: Lang): boolean {
-  if (!canSpeak() || !text) return false
-  const locale = tables._meta.voice_locale[lang] ?? 'en-IN'
+// Voices load asynchronously in Chrome; ask early and refresh when they arrive.
+let voices: SpeechSynthesisVoice[] = []
+function loadVoices() {
+  if (!canSpeak()) return
+  voices = window.speechSynthesis.getVoices()
+  window.speechSynthesis.onvoiceschanged = () => { voices = window.speechSynthesis.getVoices() }
+}
+loadVoices()
+
+// What to try, in order, when the device has no voice for the language.
+// Nepali is Devanagari, so a Hindi voice reads it intelligibly; Assamese
+// script is Bengali's, so a Bengali voice is the closest thing available.
+const VOICE_CHAIN: Record<Lang, string[]> = {
+  en: ['en-IN', 'en-GB', 'en'],
+  hi: ['hi-IN', 'hi'],
+  ne: ['ne-NP', 'ne', 'hi-IN', 'hi'],
+  bn: ['bn-IN', 'bn-BD', 'bn'],
+  as: ['as-IN', 'as', 'bn-IN', 'bn-BD', 'bn'],
+}
+
+function findVoice(lang: Lang): { voice: SpeechSynthesisVoice; exact: boolean } | null {
+  if (!voices.length) voices = window.speechSynthesis.getVoices()
+  const norm = (v: string) => v.replace('_', '-').toLowerCase()
+  for (const [i, tag] of VOICE_CHAIN[lang].entries()) {
+    const want = norm(tag)
+    const v = voices.find((x) => norm(x.lang) === want) ?? voices.find((x) => norm(x.lang).startsWith(want.split('-')[0] + '-'))
+    if (v) return { voice: v, exact: i === 0 || norm(v.lang).split('-')[0] === norm(VOICE_CHAIN[lang][0]).split('-')[0] }
+  }
+  return null
+}
+
+export type SpeakResult = 'ok' | 'fallback' | 'none'
+
+/** Speak `text` in `lang`. 'fallback' means a related language's voice was
+ *  used; 'none' means the device has no usable voice (the caller should say so). */
+export function speak(text: string, lang: Lang): SpeakResult {
+  if (!canSpeak() || !text) return 'none'
+  const found = findVoice(lang)
+  if (!found && lang !== 'en') return 'none'
   const u = new SpeechSynthesisUtterance(text)
-  u.lang = locale
-  u.rate = 0.92
-  const voices = window.speechSynthesis.getVoices()
-  const match = voices.find((v) => v.lang.replace('_', '-').toLowerCase() === locale.toLowerCase())
-    ?? voices.find((v) => v.lang.toLowerCase().startsWith(locale.slice(0, 2)))
-  if (match) u.voice = match
+  u.lang = found?.voice.lang ?? tables._meta.voice_locale[lang] ?? 'en-IN'
+  if (found) u.voice = found.voice
+  u.rate = 0.9
   window.speechSynthesis.cancel()
   window.speechSynthesis.speak(u)
-  return true
+  return found && !found.exact ? 'fallback' : 'ok'
+}
+
+/** Human-readable list of installed voices for the language, for the hint. */
+export function voiceFor(lang: Lang): string | null {
+  const f = findVoice(lang)
+  return f ? `${f.voice.name} (${f.voice.lang})` : null
 }
