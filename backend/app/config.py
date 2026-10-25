@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # notifications
     notify_channels: str = "console,websocket,email,sms,push,voice"
-    alert_test_email: str = "abjgd108@gmail.com"
+    alert_test_email: str = "abjgd1008@gmail.com"
     public_dashboard_url: str = "http://localhost:5173"
 
     smtp_host: str = ""

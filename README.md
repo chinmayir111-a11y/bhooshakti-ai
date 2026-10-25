@@ -333,7 +333,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@gmail.com
 SMTP_PASSWORD=xxxxxxxxxxxxxxxx
-ALERT_TEST_EMAIL=abjgd108@gmail.com
+ALERT_TEST_EMAIL=abjgd1008@gmail.com
 ```
 
 Then:
