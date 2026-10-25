@@ -243,6 +243,8 @@ export const api = {
     request<CitizenReport[]>(`/reports${status ? `?status=${status}` : ''}`),
   escalations: (includeChecking = false) => request<CitizenReport[]>(`/reports/escalations${includeChecking ? '?include_checking=true' : ''}`),
   healthStatus: () => request<any>('/health/status'),
+  zoneTodo: (id: number) => request<any[]>(`/zones/${id}/todo`),
+  tickTodo: (id: number, key: string) => post(`/zones/${id}/todo/${encodeURIComponent(key)}/done`),
   retryAlert: (id: number) => post(`/alerts/${id}/retry`),
   volunteers: () => request<Volunteer[]>('/volunteers'),
   markShelter: (id: number, unsafe: boolean, note = '') => post(`/shelters/${id}/unsafe`, { unsafe, note }),

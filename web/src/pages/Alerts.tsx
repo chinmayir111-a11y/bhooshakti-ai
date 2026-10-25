@@ -96,7 +96,7 @@ export default function Alerts() {
                           </table>
                           <div className="row" style={{ marginTop: 12 }}>
                             <a className="btn ghost sm" href={`${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/api/cap/alerts/${a.id}.xml`} target="_blank" rel="noreferrer"
-                               onClick={(e) => e.stopPropagation()}>CAP 1.2 XML</a>
+                               onClick={(e) => e.stopPropagation()} title="CAP 1.2: the international alert format that NDMA's SACHET and mobile cell broadcast read.">CAP 1.2 XML</a>
                             {isAuthority && !a.acknowledged && (
                               <button className="btn sm" onClick={(e) => { e.stopPropagation(); api.acknowledge(a.id).then(load) }}>
                                 I'm checking

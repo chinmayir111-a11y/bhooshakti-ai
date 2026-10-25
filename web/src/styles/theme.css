@@ -825,3 +825,18 @@ table.grid tr:hover td { background: var(--panel); }
 .retry-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 10px; border-radius: 999px;
   background: var(--sev-critical); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
 .why-ai { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+
+/* ---- officer tools: plain-language terms, what to do now */
+.term { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.todo-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.todo-step { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); font-size: 13.5px; }
+.todo-step.done .todo-text { color: var(--text-muted); text-decoration: line-through; }
+.todo-step.done svg { color: var(--sev-low-ink); flex: 0 0 auto; }
+.undo-bar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1900; display: flex; gap: 14px; align-items: center;
+  padding: 10px 12px 10px 16px; border-radius: 12px; background: var(--text); color: var(--bg); box-shadow: var(--shadow-lg); font-size: 14px; font-weight: 600;
+  max-width: calc(100vw - 32px);
+}
+.alert-item.open { box-shadow: inset 3px 0 0 var(--brand), 0 0 0 2px var(--brand); }
+.kbd-list dt { white-space: nowrap; }
+kbd { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-2); font: 700 12px var(--mono); text-align: center; }

@@ -14,7 +14,7 @@ import {
 } from '../components/common'
 import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
 import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay, SIGN_PICTOS, type SignKey } from '../components/Pictograms'
-import { ApiError, api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type Volunteer, type WeatherStatus, type ZoneProvenance } from '../api/client'
+import { API_BASE, ApiError, api, getToken, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type Volunteer, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
 import { useControl } from '../control/context'
@@ -295,6 +295,18 @@ export default function Dashboard() {
 
   // Report buttons: a spinner while it runs, then a toast either way.
   const [openReportId, setOpenReportId] = useState<number | null>(null)
+  // A CONFIRM release or a DISMISS waits 10 s with an Undo bar, then goes out.
+  const [pending, setPending] = useState<{ r: CitizenReport; kind: 'confirm' | 'dismiss'; note: string; until: number } | null>(null)
+  const [, setPendingTick] = useState(0)
+  useEffect(() => {
+    if (!pending) return
+    const id = setInterval(() => {
+      if (Date.now() >= pending.until) { clearInterval(id); setPending(null); executeAction(pending.r, pending.kind, pending.note) }
+      else setPendingTick((n) => n + 1)
+    }, 250)
+    return () => clearInterval(id)
+  }, [pending])   // eslint-disable-line react-hooks/exhaustive-deps
+
   // Two-person rule: CONFIRM first shows who the WARNING reaches; a second
   // officer releases it at once, the same officer after 30 s (server-enforced).
   const [release, setRelease] = useState<{ r: CitizenReport; reach: any; by: string; at: number } | null>(null)
@@ -315,6 +327,15 @@ export default function Dashboard() {
       note = window.prompt(`Closing an SOS needs a note: what happened? (${kind === 'confirm' ? 'confirming danger' : 'not real'})`)?.trim() ?? ''
       if (!note) return
     }
+    if (kind !== 'ack') {
+      // Ten seconds to change your mind before anything leaves the building.
+      if (pending) await executeAction(pending.r, pending.kind, pending.note)
+      setPending({ r, kind, note, until: Date.now() + 10000 })
+      return
+    }
+    await executeAction(r, kind, note)
+  }
+  async function executeAction(r: CitizenReport, kind: 'ack' | 'confirm' | 'dismiss', note = '') {
     const res: any = await run(`${kind}-${r.id}`,
       () => (kind === 'ack' ? api.acknowledgeReport(r.id) : kind === 'confirm' ? api.confirmReport(r.id, note) : api.dismissReport(r.id, note)))
     if (res === undefined) return
@@ -327,6 +348,43 @@ export default function Dashboard() {
   const selectReport = useCallback((id: number) => {
     setRailTab('reports'); setOpenReportId(id)
     window.setTimeout(() => document.getElementById(`esc-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60)
+  }, [])
+
+  // Keyboard: J/K move through the list, C confirm, D dismiss, M show on map, ? help.
+  const [kbdHelp, setKbdHelp] = useState(false)
+  const [selAlertId, setSelAlertId] = useState<number | null>(null)
+  const keyHandler = useRef<(e: KeyboardEvent) => void>()
+  keyHandler.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement
+    if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || release) return
+    const k = e.key.toLowerCase()
+    if (k === '?') { setKbdHelp((h) => !h); return }
+    if (k === 'escape') { setKbdHelp(false); return }
+    const step = k === 'j' ? 1 : k === 'k' ? -1 : 0
+    if (railTab === 'reports') {
+      const i = escalations.findIndex((r) => r.id === openReportId)
+      if (step) { const n = escalations[i < 0 ? 0 : Math.max(0, Math.min(escalations.length - 1, i + step))]; if (n) selectReport(n.id); return }
+      const cur = escalations[i]
+      if (!cur) return
+      if (k === 'c' && isAuthority) reportAction(cur, 'confirm')
+      else if (k === 'd' && isAuthority) reportAction(cur, 'dismiss')
+      else if (k === 'm' && cur.lat) { setFlyTo({ lat: cur.lat, lon: cur.lon, zoom: 12 }); if (cur.zone_id) setSelectedZoneId(cur.zone_id) }
+    } else {
+      const i = sortedAlerts.findIndex((a) => a.id === selAlertId)
+      if (step) {
+        const n = sortedAlerts[i < 0 ? 0 : Math.max(0, Math.min(sortedAlerts.length - 1, i + step))]
+        if (n) { setSelAlertId(n.id); window.setTimeout(() => document.getElementById(`alert-${n.id}`)?.scrollIntoView({ block: 'nearest' }), 30) }
+        return
+      }
+      const cur = sortedAlerts[i]
+      if (cur && k === 'm') selectZone(cur.zone_id)
+    }
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current?.(e)
+    const onHelp = () => setKbdHelp(true)
+    window.addEventListener('keydown', onKey); window.addEventListener('bh-kbd-help', onHelp)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('bh-kbd-help', onHelp) }
   }, [])
 
   const counts = summary?.severity_counts ?? {}
@@ -490,7 +548,7 @@ export default function Dashboard() {
                   <div className="empty">No alerts yet.<br />{isAuthority ? 'Run “Simulate monsoon event” from the Demo menu, or leave a citizen report unchecked.' : 'Alerts appear here as zones escalate.'}</div>
                 )}
                 {sortedAlerts.map((a) => (
-                  <button key={a.id} className={`alert-item lv-${a.severity}${newAlertIds.has(a.id) ? ' is-new' : ''}`} onClick={() => selectZone(a.zone_id)}>
+                  <button key={a.id} id={`alert-${a.id}`} className={`alert-item lv-${a.severity}${newAlertIds.has(a.id) ? ' is-new' : ''}${selAlertId === a.id ? ' open' : ''}`} onClick={() => { setSelAlertId(a.id); selectZone(a.zone_id) }}>
                     <div className="alert-row">
                       <span className="row" style={{ gap: 6 }}><TierChip tier={a.tier} status={a.status} /><SeverityChip value={a.severity} /></span>
                       <span className="tiny muted">{timeAgo(a.created_at)}</span>
@@ -516,7 +574,7 @@ export default function Dashboard() {
                 {escalations.map((r) => (
                   <div key={r.id} id={`esc-${r.id}`} className={`esc-item${r.zone_id ? '' : ' outside'}${openReportId === r.id ? ' open' : ''}`}>
                     <div className="esc-top">
-                      <span className="esc-score" style={{ color: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }}>{Math.round(r.corroboration_score)}</span>
+                      <span className="esc-score term" title={TERMS.corroboration} style={{ color: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }}>{Math.round(r.corroboration_score)}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <strong style={{ fontSize: 13 }}>{r.issue_label}</strong> <span className="tiny muted">#{r.id} · {r.zone_name ?? 'Outside monitored area'} · {timeAgo(r.created_at)}</span>
                         <div className="esc-bar"><span style={{ width: `${r.corroboration_score}%`, background: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }} /></div>
@@ -648,6 +706,31 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {kbdHelp && (
+        <div className="release-backdrop" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={() => setKbdHelp(false)}>
+          <div className="card release-card" onClick={(e) => e.stopPropagation()}>
+            <div className="card-body">
+              <h3 style={{ margin: 0 }}>Keyboard shortcuts</h3>
+              <dl className="kv kbd-list" style={{ marginTop: 12 }}>
+                <dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Next / previous in the list</dd>
+                <dt><kbd>C</kbd></dt><dd>Confirm the selected report (then release, with 10 s to undo)</dd>
+                <dt><kbd>D</kbd></dt><dd>Dismiss the selected report (10 s to undo)</dd>
+                <dt><kbd>M</kbd></dt><dd>Show it on the map</dd>
+                <dt><kbd>?</kbd></dt><dd>This help · <kbd>Esc</kbd> closes it</dd>
+              </dl>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn ghost" onClick={() => setKbdHelp(false)}>Close</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pending && (
+        <div className="undo-bar" role="status" aria-live="polite">
+          <span>{pending.kind === 'confirm' ? `Releasing the WARNING${pending.r.zone_name ? ` for ${pending.r.zone_name}` : ''}` : `Marking report #${pending.r.id} not real`} in {Math.max(0, Math.ceil((pending.until - Date.now()) / 1000))} s</span>
+          <button className="btn sm" onClick={() => { setPending(null); pushToast('Undone — nothing was sent') }}>Undo</button>
+        </div>
+      )}
+
       {release && <ReleaseDialog release={release} me={user?.username ?? ''} busy={busy !== null}
                                  onCancel={() => setRelease(null)} onRelease={() => reportAction(release.r, 'confirm')} />}
 
@@ -696,6 +779,72 @@ const WHAT_TO_DO: Record<Severity, string> = {
   MODERATE: 'Watch this zone. Tell road crews and village heads to stay alert.',
   HIGH: 'Check the slope. Warn villages below it and restrict the exposed road if rain continues.',
   CRITICAL: 'Act now: move people away from the slope, close the road, confirm the warning so sirens and SMS go out.',
+}
+
+/** Plain words for the technical terms on this screen (hover or long-press). */
+const TERMS = {
+  confidence: 'Confidence: how much the system trusts this risk number right now. It drops when sensors are silent, weather data is old or the signals disagree.',
+  corroboration: 'Corroboration (trust score, 0-100): how much independent evidence backs this report up — rain, sensors, the zone\'s state, other people. Not the chance it is true.',
+  cap: 'CAP 1.2: the international alert format that NDMA\'s SACHET and mobile cell broadcast read.',
+}
+
+/** "What to do now": 3-5 steps from the zone's own roads, villages, shelters,
+ *  volunteers and open reports. Each tick is written to the audit log. */
+function TodoList({ zoneId }: { zoneId: number }) {
+  const [items, setItems] = useState<any[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  const canTick = getUser()?.role === 'authority'
+  useEffect(() => { setItems(null); api.zoneTodo(zoneId).then(setItems).catch(() => setItems([])) }, [zoneId])
+  if (!items?.length) return null
+  async function tick(key: string) {
+    setBusy(key); setErr('')
+    try { const r = await api.tickTodo(zoneId, key); setItems((xs) => xs!.map((x) => x.key === key ? { ...x, done: r.done } : x)) }
+    catch (e: any) { setErr(`Not saved: ${e?.message ?? 'error'}`) }
+    finally { setBusy(null) }
+  }
+  return (
+    <div className="todo-list">
+      <span className="label">What to do now</span>
+      {items.map((s) => (
+        <div key={s.key} className={`todo-step${s.done ? ' done' : ''}`}>
+          <span className="todo-text">{s.text}{s.done && <span className="tiny muted"> · done by {s.done.by}, {timeAgo(s.done.at)}</span>}</span>
+          {!s.done && canTick && (
+            <button className="btn ghost sm" disabled={busy !== null} onClick={() => tick(s.key)}>
+              {busy === s.key ? <span className="spinner" /> : <IconCheck size={14} />}Done
+            </button>
+          )}
+          {s.done && <IconCheck size={16} />}
+        </div>
+      ))}
+      {err && <p className="notice tiny" role="alert">{err}</p>}
+    </div>
+  )
+}
+
+/** One click: a PDF for the DM / SDMA (time, risk, why, rain, reports, roads, shelters, actions). */
+function SitrepButton({ zoneId, code }: { zoneId: number; code: string }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function download() {
+    setBusy(true); setErr('')
+    try {
+      const res = await fetch(`${API_BASE}/zones/${zoneId}/sitrep.pdf`, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a'); a.href = url; a.download = `sitrep-${code}.pdf`; a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch (e: any) { setErr(`Could not make the report (${e?.message ?? 'error'})`) }
+    finally { setBusy(false) }
+  }
+  return (
+    <>
+      <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={download} disabled={busy}>
+        {busy && <span className="spinner" />}Download situation report (PDF)
+      </button>
+      {err && <p className="notice tiny" role="alert">{err}</p>}
+    </>
+  )
 }
 
 /** Step 2 of CONFIRM: what the WARNING will do, and the release button. */
@@ -809,7 +958,7 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volun
             )}
             <div className="score-pair">
               <div className="score-cell"><div className="label">Risk score</div><div className="score-num">{Math.round(r.risk_score)}<small>/100</small></div></div>
-              <div className="score-cell"><div className="label">How sure</div><div className="score-num">{Math.round(r.confidence * 100)}<small>%</small></div></div>
+              <div className="score-cell"><div className="label"><span className="term" title={TERMS.confidence}>How sure</span></div><div className="score-num">{Math.round(r.confidence * 100)}<small>%</small></div></div>
             </div>
             <div className="drawer-section">
               <span className="label">Why</span>
@@ -818,6 +967,8 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volun
             <div className="drawer-section">
               <span className="label">What to do</span>
               <p className={`todo lv-${sev}`}>{WHAT_TO_DO[sev]}</p>
+              {(sev === 'HIGH' || sev === 'CRITICAL') && <TodoList zoneId={detail.id} />}
+              <SitrepButton zoneId={detail.id} code={detail.code} />
               <p className="tiny muted" style={{ margin: '8px 0 0' }}>Decision support, not a guaranteed prediction. Model {r.model_version}.</p>
             </div>
           </>

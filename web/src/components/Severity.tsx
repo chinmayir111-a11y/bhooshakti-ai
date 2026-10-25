@@ -81,7 +81,7 @@ export function TierChip({ tier, status }: { tier?: string; status?: string }) {
   const closed = status && status !== 'ACTIVE'
   return (
     <span className={`tier tier-${tr}${closed ? ' closed' : ''}`}
-          title={tr === 'ADVISORY' ? 'Issued by the system from unverified evidence (API tier ADVISORY)' : 'Confirmed by an officer, or model CRITICAL (API tier WARNING)'}>
+          title={tr === 'ADVISORY' ? 'ADVISORY: a careful "be alert" sent by the system before any officer has checked — not yet confirmed.' : 'WARNING: danger confirmed by an officer (or the model at its highest level) — people are told to move now.'}>
       {TIER_LABEL[tr]}{closed ? ` · ${STATUS_LABEL[status!] ?? status!.toLowerCase()}` : ''}
     </span>
   )

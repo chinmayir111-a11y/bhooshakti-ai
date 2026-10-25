@@ -22,6 +22,7 @@ from .db import ensure_schema_additions, session_scope
 from .mqtt_client import ingest
 from .routers import (
     health,
+    ops,
     shelters,
     volunteers,
     alerts,
@@ -142,7 +143,7 @@ app.mount("/uploads", StaticFiles(directory=str(settings.upload_dir)), name="upl
 for router in (auth.router, zones.router, risk.router, alerts.router, reports.router,
                field.router, infrastructure.router, demo.router, audit.router,
                weather.router, inbound.router, cap.router, public.router, replay.router,
-               volunteers.router, shelters.router, health.router):
+               volunteers.router, shelters.router, health.router, ops.router):
     app.include_router(router)
 
 

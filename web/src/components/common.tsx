@@ -51,6 +51,7 @@ export function SettingsMenu() {
             {dark ? <IconSun size={15} /> : <IconMoon size={15} />} {dark ? 'Light mode' : 'Dark mode'}
           </button>
           <button role="menuitem" onClick={() => { window.location.assign('/control/health') }}>System health</button>
+          <button role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('bh-kbd-help')) }}>Keyboard shortcuts <span className="tiny muted" style={{ marginLeft: 'auto' }}>?</span></button>
         </div>
       )}
     </div>
