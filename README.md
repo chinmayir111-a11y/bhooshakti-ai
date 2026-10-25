@@ -703,8 +703,25 @@ then the same replay on all 66 events of 2015:
 
 **Together: warned before 55 of 100 real landslides the model had never seen, in two separate
 years.** Training on more years (75 → 253 events) left the 2015 catch unchanged and cut its
-false alarms from 31 to 21 of 66; richer rain features did not help; and a 72-hour rainfall rule
-scores about the same. The ceiling is the 25 km reanalysis, not the model.
+false alarms from 31 to 21 of 66; richer rain features did not help. The ceiling is the 25 km
+reanalysis, not the model.
+
+**Why AI? — against a simple rainfall rule** (`scripts/backtest.py` and `backtest_year.py`
+save it as `baseline`): "alert when 24 h rain ≥ T24 or 72 h rain ≥ T72", with the thresholds
+chosen on the training samples only (best hit-rate minus false-alarm-rate), then replayed on
+the same held-out events and windows:
+
+| | Warned before | False alarms, quiet monsoon weeks | Dry weeks |
+|---|---|---|---|
+| 2016+ rule (24 h ≥ 25 mm or 72 h ≥ 60 mm) | 28 / 34 | 5 / 7 | 1 / 34 |
+| 2016+ BHOOSHAKTI | 16 / 34 | 4 / 7 | 2 / 34 |
+| 2015 rule (24 h ≥ 15 mm or 72 h ≥ 50 mm) | 54 / 66 | 57 / 66 | 1 / 66 |
+| 2015 BHOOSHAKTI | 39 / 66 | 21 / 66 | 0 / 66 |
+
+The rule catches more (82 of 100 against 55) but alarms in 62 of 73 quiet monsoon weeks
+against 25 — it would cry wolf most of the season. The model is the more selective of the two,
+not the more sensitive; what it adds beyond rain is the explanation of every score and the
+fusion with sensors, citizen reports and village gauges.
 
 Of the two demo events, **Aizawl 28 May 2024** was warned 3.5 h ahead; **Noney/Tupul 30 June
 2022** was **missed** (peak risk 42.5, under the threshold). Both are shown as-is on `/replay`.

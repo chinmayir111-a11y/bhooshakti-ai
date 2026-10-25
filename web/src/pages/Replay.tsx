@@ -345,6 +345,30 @@ function ReplayPage() {
                     {r.test_year} (model trained on {r.trained_on.replace('NASA GLC events', 'landslides')}): {r.summary.headline}
                   </div>
                 ))}
+                {summary.baseline && (() => {
+                  // "Why AI?" — the same events and windows scored by a plain rainfall rule
+                  // whose thresholds were set on the training data only.
+                  const years = [summary, ...(summary.earlier ?? [])].filter((r: any) => r.baseline)
+                  const sum = (f: (r: any) => number) => years.reduce((n: number, r: any) => n + f(r), 0)
+                  const ours = { w: sum((r) => r.summary.warned_before), n: sum((r) => r.summary.events), fa: sum((r) => r.summary.non_event_false_alarms), fan: sum((r) => r.summary.non_event_windows), fd: sum((r) => r.summary.dry_false_alarms), fdn: sum((r) => r.summary.dry_windows) }
+                  const rule = { w: sum((r) => r.baseline.summary.warned_before), fa: sum((r) => r.baseline.summary.non_event_false_alarms), fd: sum((r) => r.baseline.summary.dry_false_alarms) }
+                  return (
+                    <div className="why-ai" style={{ gridColumn: '1 / -1' }}>
+                      <div className="label">Why AI? Same events, a simple rain rule</div>
+                      {years.map((r: any) => (
+                        <p key={r.test_year} className="tiny" style={{ margin: '4px 0 0' }}>
+                          <strong>{r.test_year}{r === summary ? '+' : ''}</strong> · Simple rain rule ({r.baseline.rule.text}, set on training data only): warned {r.baseline.summary.warned_before} of {r.baseline.summary.events}, false alarms {r.baseline.summary.non_event_false_alarms} of {r.baseline.summary.non_event_windows} monsoon · {r.baseline.summary.dry_false_alarms} of {r.baseline.summary.dry_windows} dry
+                          {' '}· <strong>BHOOSHAKTI</strong>: warned {r.summary.warned_before} of {r.summary.events}, false alarms {r.summary.non_event_false_alarms} of {r.summary.non_event_windows} · {r.summary.dry_false_alarms} of {r.summary.dry_windows}
+                        </p>
+                      ))}
+                      <p style={{ margin: '6px 0 0', fontSize: 14 }}>
+                        Across {years.length === 1 ? 'the test' : 'both'} year{years.length === 1 ? '' : 's'}: the rule warned before <strong>{rule.w} of {ours.n}</strong> but also alarmed in <strong>{rule.fa} of {ours.fan}</strong> quiet monsoon weeks;
+                        BHOOSHAKTI warned before <strong>{ours.w} of {ours.n}</strong> and alarmed in <strong>{ours.fa} of {ours.fan}</strong>.
+                        The rule catches more and cries wolf far more often. What the model adds beyond rain: plain-language reasons, sensors, citizen reports and village gauges.
+                      </p>
+                    </div>
+                  )
+                })()}
                 <Stat n={summary.summary.warned_before} of={summary.summary.events} label="warned before" tint="var(--sev-low-ink)" />
                 <Stat n={summary.summary.warned_same_day} of={summary.summary.events} label="same day only" tint="var(--sev-high-ink)" />
                 <Stat n={summary.summary.missed} of={summary.summary.events} label="missed" tint="var(--sev-critical-ink)" />

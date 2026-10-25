@@ -96,3 +96,36 @@ def summarise(events: list[dict], non_event: list[dict], dry: list[dict]) -> dic
                      f"False alarms: {fa_ne} of {len(non_event)} same-season non-event windows, "
                      f"{fa_dry} of {len(dry)} dry-season windows."),
     }
+
+
+# ---------------------------------------------------------------------------
+# Baseline: the simple rule a judge will ask about
+# ---------------------------------------------------------------------------
+# "Alert when 24 h rain >= T24 OR 72 h rain >= T72." The two thresholds are
+# chosen once, on the TRAINING samples only (the same positives and negatives
+# the model learns from), by Youden's J = hit rate - false-alarm rate. The rule
+# is then replayed through exactly the same scoring as the model.
+
+RULE_T24_GRID = tuple(range(10, 305, 5))
+RULE_T72_GRID = tuple(range(20, 510, 10))
+
+
+def rule_fires(r24: float, r72: float, t24: float, t72: float) -> bool:
+    return r24 >= t24 or r72 >= t72
+
+
+def choose_rule(r24: Sequence[float], r72: Sequence[float], labels: Sequence[int]) -> dict:
+    pos = [i for i, y in enumerate(labels) if y == 1]
+    neg = [i for i, y in enumerate(labels) if y == 0]
+    if not pos or not neg:
+        raise ValueError("need positive and negative training samples")
+    best = None
+    for t24 in RULE_T24_GRID:
+        for t72 in RULE_T72_GRID:
+            tpr = sum(rule_fires(r24[i], r72[i], t24, t72) for i in pos) / len(pos)
+            fpr = sum(rule_fires(r24[i], r72[i], t24, t72) for i in neg) / len(neg)
+            j = tpr - fpr
+            if best is None or j > best["youden_j"] + 1e-12:
+                best = {"t24": t24, "t72": t72, "youden_j": round(j, 4),
+                        "train_hit_rate": round(tpr, 3), "train_false_alarm_rate": round(fpr, 3)}
+    return best

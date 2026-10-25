@@ -103,8 +103,10 @@ only cut false alarms), and a lower threshold buys catches with many more false 
 is 25 km rain data, which cannot see a cloudburst on one hillside — that is what citizen reports
 are for.
 
-**"Why AI and not a simple rainfall threshold?"** On this rain data a 72-hour rainfall rule does
-about as well — we measured it. The value is the system around the forecast: rain, citizen
+**"Why AI and not a simple rainfall threshold?"** We measured it (Replay page, "Why AI?"): a
+rule with thresholds set on the training data catches more — 82 of 100 against our 55 — but
+alarms in 62 of 73 quiet monsoon weeks against our 25. In a monsoon that is a siren every week,
+and people stop listening. The value is also the system around the forecast: rain, citizen
 reports, sensors and officers combined, explained, and delivered to every phone. The forecast
 layer can take better rain data (IMD radar, NASA GPM) without changing anything else.
 

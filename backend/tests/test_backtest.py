@@ -175,3 +175,14 @@ def test_custom_replay_reuses_the_cached_aizawl_window(client):
     r = client.post("/replay/custom", json={"lat": 23.684, "lon": 92.715, "date": "2024-05-28", "time": "06:00"})
     v = r.json()["verdict"]
     assert v["outcome"] == "warned_before" and v["lead_hours"] == 3.5
+
+
+def test_rule_thresholds_come_from_training_samples_only():
+    from ml.backtest import choose_rule, rule_fires
+    # landslides after heavy 72 h rain, quiet days after light rain
+    r24 = [20, 30, 25, 5, 3, 8, 2]
+    r72 = [180, 220, 200, 40, 30, 60, 10]
+    y = [1, 1, 1, 0, 0, 0, 0]
+    rule = choose_rule(r24, r72, y)
+    assert rule["train_hit_rate"] == 1.0 and rule["train_false_alarm_rate"] == 0.0
+    assert all(rule_fires(a, b, rule["t24"], rule["t72"]) == bool(t) for a, b, t in zip(r24, r72, y))

@@ -28,7 +28,7 @@ from app.config import settings  # noqa: E402
 from app.db import session_scope  # noqa: E402
 from app.services import history, risk_service  # noqa: E402
 from ml.backtest import HIGH, summarise  # noqa: E402
-from scripts.backtest import run_events  # noqa: E402
+from scripts.backtest import baseline, run_events  # noqa: E402
 from scripts.train import MODEL_VERSION, as_event, build, fit, load_events  # noqa: E402
 
 
@@ -59,6 +59,7 @@ def main() -> int:
         risk_service.registry.loaded = True
 
         events_out, ne_out, dry_out = run_events(db, test_ev, catalogue, years, fetch=True)
+        base = baseline(db, train_ev, test_ev, catalogue, years, fetch=True)
 
     scored = [e for e in events_out if e.get("outcome") in ("warned_before", "same_day", "missed")]
     summary = summarise(scored, ne_out, dry_out)
@@ -70,6 +71,7 @@ def main() -> int:
         "threshold": HIGH,
         "test_year": args.year,
         "summary": summary,
+        "baseline": base,
         "events": events_out,
         "non_event_windows": ne_out,
         "dry_windows": dry_out,
@@ -77,7 +79,8 @@ def main() -> int:
     }
     path = settings.model_file.parent / f"backtest_{args.year}.json"
     path.write_text(json.dumps(out, indent=2, default=str))
-    print("\n  " + summary["headline"])
+    print("\n  BHOOSHAKTI: " + summary["headline"])
+    print(f"  Simple rule ({base['rule']['text']}): " + base["summary"]["headline"])
     print(f"\n  -> {path}")
     return 0
 

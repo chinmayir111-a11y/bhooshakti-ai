@@ -824,3 +824,4 @@ table.grid tr:hover td { background: var(--panel); }
 .health-banner { margin: 0; border-radius: 0; display: flex; gap: 8px; align-items: center; }
 .retry-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 10px; border-radius: 999px;
   background: var(--sev-critical); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.why-ai { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }

@@ -23,6 +23,7 @@ def summary() -> dict:
         raise HTTPException(404, "No backtest yet — run scripts/backtest.py")
     return {**{k: r[k] for k in ("generated_at", "model_version", "threshold", "test_year",
                                  "definitions", "summary", "demo_events", "data")},
+            "baseline": r.get("baseline"),
             "earlier": replay.earlier_results()}
 
 

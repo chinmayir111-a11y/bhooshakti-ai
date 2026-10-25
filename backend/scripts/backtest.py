@@ -38,14 +38,18 @@ def replay(db, lat: float, lon: float, centre_day, through: datetime) -> list[di
     return replay_service.timeline(db, lat, lon, centre_day, through)
 
 
-def run_events(db, test: list[dict], catalogue, years: list[int], fetch: bool = False):
+def run_events(db, test: list[dict], catalogue, years: list[int], fetch: bool = False,
+               rule: dict | None = None, quiet: bool = False):
     """Replay each held-out event, its non-event window and its dry window.
-    `fetch` downloads any weather window not cached yet (scripts/backtest_year.py)."""
+    `fetch` downloads any weather window not cached yet (scripts/backtest_year.py).
+    `rule` scores with the simple rainfall rule instead of the model."""
     events_out, ne_out, dry_out = [], [], []
 
     def replay(db, lat, lon, centre_day, through):
         if fetch:
             history.ensure_window(db, lat, lon, *history.window_for(centre_day))
+        if rule:
+            return replay_service.rule_timeline(db, lat, lon, centre_day, through, rule["t24"], rule["t72"])
         return replay_service.timeline(db, lat, lon, centre_day, through)
 
     for ev in test:
@@ -63,8 +67,9 @@ def run_events(db, test: list[dict], catalogue, years: list[int], fetch: bool = 
         events_out.append({**base, **res, "reference": ref.isoformat()})
         mark = {"warned_before": "WARNED", "same_day": "same-day", "missed": "missed"}[res["outcome"]]
         lead = f"{res['lead_hours']:>6.1f} h" if res["lead_hours"] is not None and res["outcome"] == "warned_before" else "       "
-        print(f"  {day}  {ev['state'][:12]:<12} {mark:<9} {lead}  peak {res['peak_score']:>5.1f}  "
-              f"{ev['title'][:44]}")
+        if not quiet:
+            print(f"  {day}  {ev['state'][:12]:<12} {mark:<9} {lead}  peak {res['peak_score']:>5.1f}  "
+                  f"{ev['title'][:44]}")
 
         y = non_event_year(as_event(ev), catalogue, years, __import__("random").Random(26001 + ev["id"]))
         if y is not None:
@@ -86,6 +91,24 @@ def run_events(db, test: list[dict], catalogue, years: list[int], fetch: bool = 
     return events_out, ne_out, dry_out
 
 
+def baseline(db, train_events: list[dict], test: list[dict], catalogue, years: list[int],
+             fetch: bool = False) -> dict:
+    """The simple rainfall rule: thresholds chosen on the training samples
+    only, then replayed on the same held-out events and windows as the model."""
+    import random
+
+    from ml.backtest import choose_rule
+    from scripts.train import build
+
+    rows, labels, _ = build(db, train_events, random.Random(settings.seed_random_state), catalogue)
+    rule = choose_rule([r.rainfall_24h for r in rows], [r.rainfall_72h for r in rows], labels)
+    ev, ne, dry = run_events(db, test, catalogue, years, fetch=fetch, rule=rule, quiet=True)
+    scored = [e for e in ev if e.get("outcome") in ("warned_before", "same_day", "missed")]
+    return {"rule": {**rule, "text": f"24 h rain >= {rule['t24']} mm OR 72 h rain >= {rule['t72']} mm",
+                     "chosen_on": f"{len(labels)} training samples ({sum(labels)} landslides), never the test events"},
+            "summary": summarise(scored, ne, dry)}
+
+
 def main() -> int:
     risk_service.registry.load()
     split_path = settings.model_file.parent / "split.json"
@@ -105,6 +128,8 @@ def main() -> int:
         print(f"  held-out events: {len(test)}   alert threshold: risk >= {HIGH:.0f} (HIGH)")
 
         events_out, ne_out, dry_out = run_events(db, test, catalogue, years)
+        train_ev = [e for e in events if e["id"] in set(split["train_event_ids"])]
+        base = baseline(db, train_ev, test, catalogue, years)
 
     scored = [e for e in events_out if e.get("outcome") in ("warned_before", "same_day", "missed")]
     summary = summarise(scored, ne_out, dry_out)
@@ -122,6 +147,7 @@ def main() -> int:
             "forecast_input": "statistical nowcast only — no archived NWP forecast, no future data",
         },
         "summary": summary,
+        "baseline": base,
         "demo_events": [e for e in events_out if e["source_event_id"] in DEMO_EVENT_IDS],
         "events": events_out,
         "non_event_windows": ne_out,
@@ -129,7 +155,8 @@ def main() -> int:
         "data": "REAL — NASA Global Landslide Catalog + curated press/official records; ERA5 via Open-Meteo",
     }
     RESULTS.write_text(json.dumps(results, indent=2, default=str))
-    print("\n  " + summary["headline"])
+    print("\n  BHOOSHAKTI: " + summary["headline"])
+    print(f"  Simple rule ({base['rule']['text']}): " + base["summary"]["headline"])
     print(f"\n  -> {RESULTS}")
     return 0
 
