@@ -82,9 +82,13 @@ def checks(db: Session) -> list[dict[str, Any]]:
                     "detail": "Last delivery FAILED — use Retry on the alert" if failing else ("Live" if live else sim_note),
                     "last_ok": _iso(row["ok"])})
 
-    nasa = bool(getattr(settings, "earthdata_user", "")) or _env_has("EARTHDATA_USER")
-    out.append({"key": "nasa", "label": "NASA Earthdata (IMERG)", "critical": False, "status": "amber",
-                "detail": "Login set; satellite rain not used live yet" if nasa else "No login set", "last_ok": None})
+    nasa = bool(settings.earthdata_user)
+    sat = db.execute(text("SELECT COUNT(*), MAX(fetched_at) FROM satellite_rain")).first()
+    out.append({"key": "nasa", "label": "NASA Earthdata (IMERG)", "critical": False,
+                "status": "green" if nasa and sat[0] else "amber",
+                "detail": (f"{sat[0]} days of satellite rain cached for the replay (not used live)" if sat[0]
+                           else "Login set; run scripts/fetch_imerg.py") if nasa else "No login set",
+                "last_ok": _iso(sat[1])})
     for extra in CHECKS:
         try:
             out.append(extra(db))
@@ -92,15 +96,6 @@ def checks(db: Session) -> list[dict[str, Any]]:
             out.append({"key": getattr(extra, "__name__", "check"), "label": "check", "status": "red",
                         "critical": False, "detail": str(exc), "last_ok": None})
     return out
-
-
-def _env_has(name: str) -> bool:
-    try:
-        from pathlib import Path
-        env = Path(__file__).resolve().parents[3] / ".env"
-        return any(line.startswith(f"{name}=") and line.strip() != f"{name}=" for line in env.read_text().splitlines())
-    except OSError:
-        return False
 
 
 @router.get("/status", summary="Every dependency, green / amber / red (officers)")
