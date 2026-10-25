@@ -3,6 +3,8 @@
     LS <pincode or village> [what you see]   report a landslide
     LS <lat>,<lon> [what you see]             same, from GPS (the citizen app fills
                                               this in when there is no internet)
+    LS 734101 CRACK SPRING                    with warning signs: CRACK SPRING TILT
+                                              SOUND STONES SINK (+10 trust each)
     SAFE <pincode or village>                 ask the current risk
     JOIN <pincode or village> [EN|HI|AS|BN|NE]  get that zone's alerts
     STOP                                      stop alerts
@@ -15,11 +17,13 @@ does the database lookup from pincode / place name to a monitored zone.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from . import signs
 
 KEYWORDS = {
     "LS": "report", "LANDSLIDE": "report", "SLIDE": "report",
@@ -35,6 +39,7 @@ PINCODE = re.compile(r"^\d{6}$")
 COORDS = re.compile(r"(-?\d{1,2}\.\d{2,7})\s*[,; ]\s*(-?\d{2,3}\.\d{2,7})")
 
 HELP_TEXT = ("BHOOSHAKTI [DEMO]: LS <pincode> <what you see> = report landslide. "
+             "Add signs: CRACK SPRING TILT SOUND STONES SINK. "
              "SAFE <pincode> = current risk. JOIN <pincode> = get alerts. STOP = stop. "
              "Emergency: call 112.")
 
@@ -48,6 +53,7 @@ class Command:
     language: str | None = None     # JOIN ... HI
     lat: float | None = None        # GPS sent instead of a pincode
     lon: float | None = None
+    signs: list[str] = field(default_factory=list)   # LS 734101 CRACK SPRING
     raw: str = ""
 
 
@@ -64,6 +70,8 @@ def parse(body: str) -> Command:
     rest = tokens[1:]
 
     cmd = Command(intent, raw=raw)
+    if intent == "report":
+        cmd.signs = signs.from_words(rest)
     if intent in ("stop", "help") or not rest:
         return cmd
 

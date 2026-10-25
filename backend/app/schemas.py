@@ -134,6 +134,9 @@ class CitizenReportCreate(BaseModel):
     client_uuid: str | None = Field(
         None, description="Set by the offline queue so a replayed report is stored once."
     )
+    signs: list[Literal["crack", "spring", "tilt", "sound", "stones", "sinking"]] = Field(
+        default_factory=list, description="Warning signs the reporter saw (services/signs.py)."
+    )
     device_id: str | None = Field(
         None, max_length=64,
         description="Random id the app keeps per device; tells senders apart when no phone is given.",

@@ -7,6 +7,6 @@ export const citizenQueue = new CitizenQueue(idbStore, async (r) => {
   await api.createReport({
     client_uuid: r.client_uuid, issue_type: r.issue_type, lat: r.lat, lon: r.lon,
     description: r.description, phone: r.phone, language: r.language,
-    photo_base64: r.photo_base64, voice_base64: r.voice_base64, channel: 'pwa-offline',
+    photo_base64: r.photo_base64, voice_base64: r.voice_base64, signs: r.signs ?? [], channel: 'pwa-offline',
   })
 })

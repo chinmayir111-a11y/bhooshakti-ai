@@ -128,7 +128,7 @@ def handle_sms(db: Session, sender: str, body: str) -> str:
                 r = reports.submit(
                     db, issue_type="landslide", lat=lat, lon=lon,
                     description=f"[SMS] {cmd.detail}".strip(), phone=sender,
-                    channel="sms", principal=INBOUND,
+                    channel="sms", principal=INBOUND, signs=cmd.signs,
                 )
                 reply = (f"BHOOSHAKTI [DEMO]: report #{r.id} near {loc['place']} received. "
                          f"Officers alerted. If in danger move away from the slope. Call 112.")

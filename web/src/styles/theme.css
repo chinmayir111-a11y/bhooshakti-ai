@@ -794,3 +794,7 @@ table.grid tr:hover td { background: var(--panel); }
   .rain-slider .t { font-size: 10.5px; }
   .ticker-item { white-space: normal; }
 }
+
+/* ---- villager warning signs on a report card */
+.esc-signs { display: flex; gap: 4px; margin-top: 6px; }
+.esc-signs span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--surface-2); color: var(--earth); }

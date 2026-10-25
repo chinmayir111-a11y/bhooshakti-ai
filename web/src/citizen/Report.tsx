@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
-import { ISSUE_PICTOS, IconArrow, IconCheck, IconMail, PictoCamera, PictoMic, PictoPin } from '../components/Pictograms'
+import { ISSUE_PICTOS, IconArrow, IconCheck, IconMail, PictoCamera, PictoMic, PictoPin, SIGN_PICTOS, SIGN_SMS, type SignKey } from '../components/Pictograms'
 import { useOnline } from '../hooks'
 import { speak, useLang } from '../i18n'
 import { citizenQueue } from '../offline/citizenQueue'
@@ -54,6 +54,7 @@ export default function CitizenReport() {
   const [pinBusy, setPinBusy] = useState(false)
   const [byPin, setByPin] = useState(false)
   const [issue, setIssue] = useState<typeof ISSUES[number]>('landslide')
+  const [signs, setSigns] = useState<SignKey[]>([])
   const [voice, setVoice] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [note, setNote] = useState('')
@@ -132,7 +133,7 @@ export default function CitizenReport() {
     setBusy(true); setError('')
     const body = {
       client_uuid: uuid.current, issue_type: issue, lat: pos.lat, lon: pos.lon,
-      description: note, phone, language: lang, photo_base64: photo, voice_base64: voice,
+      description: note, phone, language: lang, photo_base64: photo, voice_base64: voice, signs,
     }
     try {
       if (!online) throw new Error('offline')
@@ -169,9 +170,30 @@ export default function CitizenReport() {
         )}
       </div>
 
-      {/* 2 location — automatic */}
+      {/* 2 warning signs — multi-select, each tile can read itself aloud */}
+      <div className={`step${signs.length ? ' done' : ''}`}>
+        <h2><span className="n">2</span>{t('seen_title')}<Speak text={`${t('seen_title')}. ${t('signs_hint')}`} lang={lang} dark />{signs.length > 0 && <span className="okmark"><IconCheck size={26} /></span>}</h2>
+        <p>{t('signs_hint')}</p>
+        <div className="picto-grid sign-grid" role="group" aria-label={t('seen_title')}>
+          {(Object.keys(SIGN_PICTOS) as SignKey[]).map((k) => {
+            const P = SIGN_PICTOS[k]
+            const on = signs.includes(k)
+            const toggle = () => setSigns((s) => on ? s.filter((x) => x !== k) : [...s, k])
+            return (
+              <div key={k} role="checkbox" aria-checked={on} tabIndex={0} className={`tile${on ? ' on' : ''}`}
+                   onClick={toggle} onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle() } }}>
+                <span className="tile-speak"><Speak text={t(`sign_${k}`)} lang={lang} dark size={34} /></span>
+                <P size={44} />{t(`sign_${k}`)}
+                {on && <span className="tile-tick"><IconCheck size={16} /></span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 3 location — automatic */}
       <div className={`step${locState === 'ok' ? ' done' : ''}`}>
-        <h2><span className="n">2</span>{locState === 'ok' ? t('report_located') : t('report_locating')}
+        <h2><span className="n">3</span>{locState === 'ok' ? t('report_located') : t('report_locating')}
           <Speak text={locState === 'ok' ? t('report_located') : t('report_locating')} lang={lang} dark />
           {locState === 'ok' && <span className="okmark"><IconCheck size={26} /></span>}
         </h2>
@@ -193,9 +215,9 @@ export default function CitizenReport() {
         </form>
       </div>
 
-      {/* 3 what do you see — pictograms, optional */}
+      {/* 4 what do you see — pictograms, optional */}
       <div className="step">
-        <h2><span className="n">3</span>{t('report_what')}<Speak text={t('report_what')} lang={lang} dark /></h2>
+        <h2><span className="n">4</span>{t('report_what')}<Speak text={t('report_what')} lang={lang} dark /></h2>
         <div className="picto-grid" role="radiogroup">
           {ISSUES.map((k) => {
             const P = ISSUE_PICTOS[k as keyof typeof ISSUE_PICTOS]
@@ -230,7 +252,7 @@ export default function CitizenReport() {
       <div style={{ marginTop: 12 }}>
         <SmsButton intent="report" className="cz-linkbtn sms" label={t('report_send_sms')} icon={<IconMail />}
                    where={geo?.nearest_pincode || (pos ? `${pos.lat.toFixed(5)},${pos.lon.toFixed(5)}` : null)}
-                   extra={`${t(`issue_${issue}`)} ${note}`} />
+                   extra={`${signs.map((k) => SIGN_SMS[k]).join(' ')} ${t(`issue_${issue}`)} ${note}`} />
       </div>
       <p className="cz-notice" style={{ marginTop: 6 }}>{t('report_sms_hint')}</p>
       <p className="cz-notice">{t('emergency_line')}</p>

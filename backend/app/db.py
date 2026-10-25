@@ -43,3 +43,18 @@ def session_scope() -> Iterator[Session]:
         raise
     finally:
         db.close()
+
+
+# Columns added after a database was first seeded. create_all() makes new
+# tables but never alters existing ones, so each addition is listed here and
+# applied idempotently at API start-up (and by the test fixtures).
+SCHEMA_ADDITIONS = [
+    "ALTER TABLE citizen_reports ADD COLUMN IF NOT EXISTS signs JSONB NOT NULL DEFAULT '[]'::jsonb",
+]
+
+
+def ensure_schema_additions() -> None:
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for stmt in SCHEMA_ADDITIONS:
+            conn.execute(text(stmt))

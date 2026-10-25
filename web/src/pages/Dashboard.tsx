@@ -13,7 +13,7 @@ import {
   DeliveryChips, FactorList, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
 import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
-import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay } from '../components/Pictograms'
+import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay, SIGN_PICTOS, type SignKey } from '../components/Pictograms'
 import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
@@ -54,6 +54,12 @@ function Counter({ value, label, tint, src, srcKind }: { value: number; label: s
       <div className="stat-label">{label} {src && <Src kind={srcKind ?? 'sim'} label={src} />}</div>
     </div>
   )
+}
+
+/** Officer-facing names for the villager warning signs (backend services/signs.py). */
+const SIGN_LABELS: Record<SignKey, string> = {
+  crack: 'Cracks in ground or walls', spring: 'Muddy or new springs / water stopped', tilt: 'Tilted trees, poles or walls',
+  sound: 'Rumbling or cracking sounds', stones: 'Falling stones', sinking: 'Road or ground sinking',
 }
 
 export default function Dashboard() {
@@ -457,6 +463,14 @@ export default function Dashboard() {
                         <div className="esc-bar"><span style={{ width: `${r.corroboration_score}%`, background: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }} /></div>
                       </div>
                     </div>
+                    {(r.signs?.length ?? 0) > 0 && (
+                      <div className="esc-signs" aria-label="Warning signs seen">
+                        {(r.signs as SignKey[]).filter((k) => k in SIGN_PICTOS).map((k) => {
+                          const P = SIGN_PICTOS[k]
+                          return <span key={k} title={SIGN_LABELS[k]}><P size={22} /></span>
+                        })}
+                      </div>
+                    )}
                     <div style={{ marginTop: 6 }}><EscalationLine r={r} now={now} /></div>
                     <ul className="esc-reasons">{(r.corroboration_reasons ?? []).slice(0, 2).map((x) => <li key={x.key}><b>{x.points > 0 ? '+' : ''}{x.points}</b>{x.text}</li>)}</ul>
                     {isAuthority && (

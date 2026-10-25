@@ -527,6 +527,8 @@ class CitizenReport(Base):
     # web | pwa | sms | ivr — how the report reached us.
     channel: Mapped[str] = mapped_column(String(16), default="web", server_default=text("'web'"))
     voice_note_path: Mapped[str] = mapped_column(String(255), default="", server_default=text("''"))
+    # Warning signs ticked by the reporter (services/signs.py keys).
+    signs: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
 
     # Auto-triage. Score 0-100 with the plain-language reasons behind it.
     corroboration_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))

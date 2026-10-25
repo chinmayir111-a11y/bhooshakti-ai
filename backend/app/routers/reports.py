@@ -19,6 +19,7 @@ from ..deps import Principal, audit, current_principal, require_authority
 from ..models import CitizenReport, ReportStatus, Zone
 from ..schemas import CitizenReportCreate, DecisionRequest, ModerationRequest
 from ..services import escalation, spatial
+from ..services import signs as sign_list
 from ..services.media import save_audio, save_photo
 from ..ws import EVENT_REPORT_MODERATED, EVENT_REPORT_NEW, EVENT_SUMMARY, manager
 
@@ -46,6 +47,7 @@ def serialise(db: Session, r: CitizenReport, zone_name: str | None = None) -> di
         "description": r.description,
         "photo_path": r.photo_path,
         "voice_note_path": r.voice_note_path,
+        "signs": list(r.signs or []),
         "lat": r.lat,
         "lon": r.lon,
         "phone": r.phone,
@@ -117,6 +119,7 @@ def _fold_target(db: Session, sender: str, issue_type: str) -> CitizenReport | N
 def submit(db: Session, *, issue_type: str, lat: float, lon: float, description: str = "",
            phone: str = "", language: str = "en", photo_path: str = "", voice_path: str = "",
            channel: str = "web", client_uuid: str | None = None, device_id: str | None = None,
+           signs: list[str] | None = None,
            principal: Principal | None = None, request: Request | None = None) -> CitizenReport:
     """Store one report from any channel (web, PWA, SMS, IVR) and start triage."""
     sender = sender_key(phone, device_id, request)
@@ -145,6 +148,7 @@ def submit(db: Session, *, issue_type: str, lat: float, lon: float, description:
         status=ReportStatus.PENDING,
         channel=channel,
         client_uuid=client_uuid,
+        signs=sign_list.clean(signs),
         created_at=datetime.now(timezone.utc),
     )
     db.add(report)
@@ -182,6 +186,7 @@ def create_report(body: CitizenReportCreate, request: Request,
         photo_path=save_photo(body.photo_base64, prefix="citizen"),
         voice_path=save_audio(body.voice_base64, prefix="citizen-voice"),
         channel=body.channel, client_uuid=body.client_uuid, device_id=body.device_id,
+        signs=body.signs,
         principal=principal, request=request,
     )
     return {

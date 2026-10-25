@@ -15,6 +15,7 @@ export interface QueuedCitizenReport {
   lon: number
   description: string
   phone: string
+  signs?: string[]
   language: string
   photo_base64: string | null
   voice_base64: string | null

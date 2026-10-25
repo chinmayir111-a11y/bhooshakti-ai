@@ -58,6 +58,7 @@ export interface CitizenReport {
   id: number; issue_type: string; issue_label: string; description: string
   photo_path: string; voice_note_path: string; lat: number; lon: number; phone: string; language: string
   channel: string
+  signs?: string[]
   zone_id: number | null; zone_name: string | null
   geo_valid: boolean; geo_note: string; status: string
   corroboration_score: number; corroboration_reasons: CorroborationReason[]

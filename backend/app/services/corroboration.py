@@ -12,6 +12,7 @@ is to fake:
     >=3 independent reports (different phone numbers) within
       1.5 km and 60 min                                           +25
     photo attached                                                 +5
+    each warning sign the villager ticked (cracks, springs, ...)   +10, at most +30
     location outside every monitored zone (geo_valid false)       -30
 
 `score_evidence` is pure and unit-tested; `gather_evidence` is the PostGIS
@@ -25,6 +26,8 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from . import signs
 
 POINTS = {
     "sos": 40,
@@ -71,6 +74,8 @@ class Evidence:
     # danger right now. Weighted so a single SOS inside a HIGH zone reaches the
     # immediate-advisory line (40 + 30 + rain 20 >= 85) without any photo.
     is_sos: bool = False
+    # Warning signs the reporter ticked (services/signs.py).
+    signs: list[str] = field(default_factory=list)
 
 
 def score_evidence(e: Evidence) -> tuple[float, list[dict[str, Any]]]:
@@ -99,6 +104,13 @@ def score_evidence(e: Evidence) -> tuple[float, list[dict[str, Any]]]:
         add("report_cluster",
             f"{e.independent_phones} independent reports (different phone numbers) within "
             f"{CLUSTER_RADIUS_M / 1000:.1f} km in {CLUSTER_WINDOW_MIN} min")
+    sign_points = 0
+    for k in signs.clean(e.signs):
+        if sign_points >= signs.MAX_SIGN_POINTS:
+            break
+        sign_points += signs.POINTS_PER_SIGN
+        reasons.append({"key": f"sign_{k}", "points": signs.POINTS_PER_SIGN,
+                        "text": f"Villager saw {signs.SIGNS[k][0]}"})
     if e.has_photo:
         add("photo", "Photo attached")
     if not e.geo_valid:
@@ -210,7 +222,7 @@ def gather_evidence(db: Session, report, now: datetime | None = None) -> Evidenc
         created = created.replace(tzinfo=timezone.utc)
 
     e = Evidence(has_photo=bool(report.photo_path), geo_valid=bool(report.geo_valid),
-                 is_sos=report.issue_type == "sos")
+                 is_sos=report.issue_type == "sos", signs=list(report.signs or []))
     if report.zone_id:
         e.zone_name, e.zone_severity = _zone_state(db, report.zone_id)
         e.rain_24h_mm = observed_rain_24h(db, report.zone_id, now)

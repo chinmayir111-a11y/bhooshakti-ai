@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .db import session_scope
+from .db import ensure_schema_additions, session_scope
 from .mqtt_client import ingest
 from .routers import (
     alerts,
@@ -79,6 +79,11 @@ async def lifespan(app: FastAPI):
 
     log.info("loading susceptibility model …")
     risk_service.registry.load()
+
+    try:
+        ensure_schema_additions()
+    except Exception as exc:
+        log.warning("could not apply schema additions (%s)", exc)
 
     log.info("starting MQTT ingest …")
     ingest.start()

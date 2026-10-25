@@ -128,7 +128,15 @@
     "sms_ready_say": "Your message is ready. On the next screen, press the send button.",
     "sms_ready_show": "Message ready — press Send",
     "sms_finding_location": "Finding your location…",
-    "sms_no_number": "No SMS number is set up yet, so the “To” box will be empty."
+    "sms_no_number": "No SMS number is set up yet, so the “To” box will be empty.",
+    "signs_hint": "Tap every sign you noticed. Tap again to remove.",
+    "sign_crack": "Cracks in ground or walls",
+    "sign_spring": "Muddy or new springs, or water stopped",
+    "sign_tilt": "Tilted trees, poles or walls",
+    "sign_sound": "Rumbling or cracking sounds",
+    "sign_stones": "Falling stones",
+    "sign_sinking": "Road or ground sinking",
+    "seen_title": "What did you see?"
   },
   "hi": {
     "lang_name": "हिन्दी",
@@ -243,7 +251,15 @@
     "sms_ready_say": "आपका संदेश तैयार है। अगली स्क्रीन पर भेजें बटन दबाएँ।",
     "sms_ready_show": "संदेश तैयार — भेजें दबाएँ",
     "sms_finding_location": "आपकी जगह ढूँढ रहे हैं…",
-    "sms_no_number": "अभी SMS नंबर सेट नहीं है, इसलिए “प्रति” खाली रहेगा।"
+    "sms_no_number": "अभी SMS नंबर सेट नहीं है, इसलिए “प्रति” खाली रहेगा।",
+    "signs_hint": "जो भी संकेत दिखा, उस पर टैप करें। हटाने के लिए फिर टैप करें।",
+    "sign_crack": "ज़मीन या दीवार में दरारें",
+    "sign_spring": "मटमैला या नया झरना, या पानी अचानक बंद",
+    "sign_tilt": "झुके हुए पेड़, खंभे या दीवारें",
+    "sign_sound": "गड़गड़ाहट या चटकने की आवाज़",
+    "sign_stones": "गिरते पत्थर",
+    "sign_sinking": "सड़क या ज़मीन धँस रही है",
+    "seen_title": "आपने क्या देखा?"
   },
   "as": {
     "lang_name": "অসমীয়া",
@@ -358,7 +374,15 @@
     "sms_ready_say": "আপোনাৰ বাৰ্তা সাজু। পিছৰ স্ক্ৰীণত পঠিওৱা বুটামটো টিপক।",
     "sms_ready_show": "বাৰ্তা সাজু — পঠিয়াওক টিপক",
     "sms_finding_location": "আপোনাৰ স্থান বিচাৰি আছো…",
-    "sms_no_number": "এতিয়াও SMS নম্বৰ ছেট কৰা হোৱা নাই, গতিকে “প্ৰাপক” খালী থাকিব।"
+    "sms_no_number": "এতিয়াও SMS নম্বৰ ছেট কৰা হোৱা নাই, গতিকে “প্ৰাপক” খালী থাকিব।",
+    "signs_hint": "যিমান চিন দেখিলে সকলোতে টেপ কৰক। আঁতৰাবলৈ পুনৰ টেপ কৰক।",
+    "sign_crack": "মাটি বা বেৰত ফাট",
+    "sign_spring": "বোকা বা নতুন ভুমুকি, বা পানী হঠাতে বন্ধ",
+    "sign_tilt": "হালি পৰা গছ, খুঁটা বা বেৰ",
+    "sign_sound": "গুমগুমনি বা ফাট মেলাৰ শব্দ",
+    "sign_stones": "শিল খহি পৰা",
+    "sign_sinking": "পথ বা মাটি বহি যোৱা",
+    "seen_title": "আপুনি কি দেখিলে?"
   },
   "bn": {
     "lang_name": "বাংলা",
@@ -473,7 +497,15 @@
     "sms_ready_say": "আপনার বার্তা তৈরি। পরের স্ক্রিনে পাঠান বোতাম টিপুন।",
     "sms_ready_show": "বার্তা তৈরি — পাঠান টিপুন",
     "sms_finding_location": "আপনার অবস্থান খোঁজা হচ্ছে…",
-    "sms_no_number": "এখনও SMS নম্বর সেট করা হয়নি, তাই “প্রাপক” খালি থাকবে।"
+    "sms_no_number": "এখনও SMS নম্বর সেট করা হয়নি, তাই “প্রাপক” খালি থাকবে।",
+    "signs_hint": "যে চিহ্নগুলি দেখেছেন সবগুলিতে ট্যাপ করুন। সরাতে আবার ট্যাপ করুন।",
+    "sign_crack": "মাটি বা দেয়ালে ফাটল",
+    "sign_spring": "ঘোলা বা নতুন ঝরনা, বা জল হঠাৎ বন্ধ",
+    "sign_tilt": "হেলে পড়া গাছ, খুঁটি বা দেয়াল",
+    "sign_sound": "গুড়গুড় বা ফাটার শব্দ",
+    "sign_stones": "পাথর পড়ছে",
+    "sign_sinking": "রাস্তা বা মাটি বসে যাচ্ছে",
+    "seen_title": "আপনি কী দেখেছেন?"
   },
   "ne": {
     "lang_name": "नेपाली",
@@ -588,6 +620,14 @@
     "sms_ready_say": "तपाईंको सन्देश तयार छ। अर्को स्क्रिनमा पठाउने बटन थिच्नुहोस्।",
     "sms_ready_show": "सन्देश तयार — पठाउनुहोस् थिच्नुहोस्",
     "sms_finding_location": "तपाईंको स्थान खोज्दै…",
-    "sms_no_number": "SMS नम्बर अझै सेट छैन, त्यसैले “प्रापक” खाली हुनेछ।"
+    "sms_no_number": "SMS नम्बर अझै सेट छैन, त्यसैले “प्रापक” खाली हुनेछ।",
+    "signs_hint": "देखेका सबै संकेतमा थिच्नुहोस्। हटाउन फेरि थिच्नुहोस्।",
+    "sign_crack": "जमिन वा पर्खालमा चिरा",
+    "sign_spring": "धमिलो वा नयाँ मूल, वा पानी अचानक रोकियो",
+    "sign_tilt": "ढल्केका रूख, खम्बा वा पर्खाल",
+    "sign_sound": "गडगडाहट वा चर्कने आवाज",
+    "sign_stones": "ढुङ्गा खसिरहेको",
+    "sign_sinking": "सडक वा जमिन भासिँदै",
+    "seen_title": "तपाईंले के देख्नुभयो?"
   }
 }

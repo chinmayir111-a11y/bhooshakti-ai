@@ -21,6 +21,12 @@ from app.config import settings as _settings  # noqa: E402
 # No background weather pulls or rescoring while tests run.
 _settings.weather_refresh_minutes = 0
 
+try:                                    # columns added since the database was seeded
+    from app.db import ensure_schema_additions  # noqa: E402
+    ensure_schema_additions()
+except Exception:                       # no database: the DB tests skip anyway
+    pass
+
 
 def _database_ready() -> tuple[bool, str]:
     try:

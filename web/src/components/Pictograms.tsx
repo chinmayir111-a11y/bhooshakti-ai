@@ -202,6 +202,71 @@ export function HillsHeader({ className }: { className?: string }) {
   )
 }
 
+/** Water coming out of a slope where there was none, or a spring gone muddy. */
+export function PictoSpring(p: P) {
+  return (
+    <Svg {...p}>
+      <path d="M4 22l22 10 34-2" />
+      <path d="M26 32c0 8 4 10 4 16" />
+      <path d="M30 48c-6 0-8 5-8 8h16c0-3-2-8-8-8z" fill="currentColor" stroke="none" />
+      <path d="M36 34c4 4 4 8 2 12" strokeDasharray="2 5" />
+      <circle cx="44" cy="52" r="2" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="50" r="2" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+/** Sound waves coming out of the ground: rumbling or cracking heard at night. */
+export function PictoRumble(p: P) {
+  return (
+    <Svg {...p}>
+      <path d="M4 50h56" />
+      <path d="M32 50l-4-8 6-6-4-8" />
+      <path d="M20 34a14 14 0 0 1 0-16M14 38a22 22 0 0 1 0-24" />
+      <path d="M44 34a14 14 0 0 0 0-16M50 38a22 22 0 0 0 0-24" />
+    </Svg>
+  )
+}
+
+/** Stones bouncing down a slope. */
+export function PictoFallingStones(p: P) {
+  return (
+    <Svg {...p}>
+      <path d="M4 58L40 6" />
+      <circle cx="30" cy="22" r="5" fill="currentColor" stroke="none" />
+      <circle cx="40" cy="36" r="4" fill="currentColor" stroke="none" />
+      <circle cx="50" cy="50" r="5.5" fill="currentColor" stroke="none" />
+      <path d="M36 16l4 4M46 30l3 3M56 42l2 3" strokeDasharray="1 4" />
+    </Svg>
+  )
+}
+
+/** A road with a dip in it and an arrow down: the ground is sinking. */
+export function PictoSinking(p: P) {
+  return (
+    <Svg {...p}>
+      <path d="M4 28h16c4 0 6 10 12 10s8-10 12-10h16" />
+      <path d="M4 40h12M48 40h12" strokeDasharray="3 4" />
+      <path d="M32 44v14M26 52l6 6 6-6" />
+    </Svg>
+  )
+}
+
+/** The six warning signs from GSI's community pilot (backend services/signs.py). */
+export const SIGN_PICTOS = {
+  crack: PictoCrack,
+  spring: PictoSpring,
+  tilt: PictoTiltedTrees,
+  sound: PictoRumble,
+  stones: PictoFallingStones,
+  sinking: PictoSinking,
+} as const
+export type SignKey = keyof typeof SIGN_PICTOS
+/** What each sign is called in an SMS: LS 734101 CRACK SPRING */
+export const SIGN_SMS: Record<SignKey, string> = {
+  crack: 'CRACK', spring: 'SPRING', tilt: 'TILT', sound: 'SOUND', stones: 'STONES', sinking: 'SINK',
+}
+
 export const ISSUE_PICTOS = {
   landslide: PictoLandslide,
   road_blockage: PictoRoadBlocked,

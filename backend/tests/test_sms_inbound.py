@@ -196,3 +196,12 @@ def test_public_risk_reports_last_observed_hour_of_rain(client):
     r = client.get("/public/pincode/734223").json()
     assert "rain_last_hour_mm" in r
     assert r["rain_last_hour_mm"] is None or r["rain_last_hour_mm"] >= 0
+
+
+def test_warning_signs_are_read_from_an_sms_report():
+    from app.services.sms_keywords import parse
+    c = parse("LS 734101 crack, SPRING near school stones")
+    assert c.intent == "report" and c.pincode == "734101"
+    assert c.signs == ["crack", "spring", "stones"]
+    assert parse("LS 26.95300,88.32100 SINK tilt").signs == ["tilt", "sinking"]
+    assert parse("SAFE 734101 CRACK").signs == [], "only reports carry signs"
