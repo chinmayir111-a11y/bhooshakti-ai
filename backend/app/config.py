@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     # Background job: re-pull recent + forecast rain, then rescore every zone
     # (raising alerts on a rise). 0 turns it off.
     weather_refresh_minutes: int = 30
+    # USGS earthquake feed (M4.5+, every 15 min). Off in tests.
+    quake_feed_enabled: bool = True
 
     # ml
     model_path: str = "ml/artifacts/susceptibility_xgb.joblib"

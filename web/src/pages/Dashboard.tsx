@@ -8,7 +8,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
-import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View, type VolunteerPoint } from '../components/Map3D'
+import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View, type VolunteerPoint, type QuakePoint } from '../components/Map3D'
 import {
   DeliveryChips, FactorList, GaugeStrip, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
@@ -38,7 +38,7 @@ function slowConnection(): boolean {
 }
 
 const LAYER_LABELS: Array<[keyof Layers3D, string]> = [
-  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain'], ['roads', 'Roads & villages'], ['volunteers', 'Village volunteers'],
+  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain'], ['roads', 'Roads & villages'], ['volunteers', 'Village volunteers'], ['quakes', 'Earthquakes (USGS)'],
 ]
 
 function Counter({ value, label, tint, src, srcKind }: { value: number; label: string; tint?: string; src?: string; srcKind?: 'real' | 'live' | 'sim' }) {
@@ -72,6 +72,15 @@ export default function Dashboard() {
   const [infrastructure, setInfrastructure] = useState<any>(null)
   const [sensors, setSensors] = useState<any>(null)
   const [volunteers, setVolunteers] = useState<Volunteer[]>([])
+  // Recent M4.5+ earthquakes (USGS), refreshed every 15 min like the server's feed.
+  const [quakeList, setQuakeList] = useState<any[]>([])
+  useEffect(() => {
+    const load = () => api.quakes().then((r) => setQuakeList(r.quakes ?? [])).catch(() => {})
+    load(); const id = setInterval(load, 15 * 60000); return () => clearInterval(id)
+  }, [])
+  const quakePoints: QuakePoint[] = useMemo(() => quakeList.map((q) => ({
+    lat: q.lat, lon: q.lon, mag: q.mag, place: q.place, ago: timeAgo(q.occurred_at), depth_km: q.depth_km,
+  })), [quakeList])
   // Critical services that are down (System health): a banner, checked every minute.
   const [healthRed, setHealthRed] = useState<string[]>([])
   useEffect(() => {
@@ -108,9 +117,9 @@ export default function Dashboard() {
   const [layersOpen, setLayersOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
   const [resetSignal, setResetSignal] = useState(0)
-  const [layers, setLayers] = useState<Layers3D>({ zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true })
+  const [layers, setLayers] = useState<Layers3D>({ zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true, quakes: true })
   // The 2D map keeps its own layer names.
-  const layers2d: Layers = { risk: layers.zones, roads: layers.roads, villages: layers.roads, sensors: layers.sensors, historical: false, volunteers: layers.volunteers }
+  const layers2d: Layers = { risk: layers.zones, roads: layers.roads, villages: layers.roads, sensors: layers.sensors, historical: false, volunteers: layers.volunteers, quakes: layers.quakes }
 
   const [frames, setFrames] = useState<RainFrame[]>([])
   const [frameIdx, setFrameIdx] = useState<number | null>(null)       // null = live (latest observed)
@@ -614,13 +623,13 @@ export default function Dashboard() {
           {!(want3d && hide2d) && (
             <MapView zones={zones} infrastructure={infrastructure} sensors={sensors} historical={historical}
                      layers={layers2d} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
-                     rain={rainByZone} pulses={pulses} volunteers={volunteerPoints} />
+                     rain={rainByZone} pulses={pulses} volunteers={volunteerPoints} quakes={quakePoints} />
           )}
           {want3d && (
             <div className={`map3d-layer${ready3d ? ' ready' : ''}`}>
               <Suspense fallback={null}>
                 <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
-                       reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers} volunteers={volunteerPoints}
+                       reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers} volunteers={volunteerPoints} quakes={quakePoints}
                        selectedZoneId={selectedZoneId} onSelectZone={selectZone} onSelectReport={selectReport} flyTo={flyTo} dark={dark}
                        basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal}
                        onReady={() => setReady3d(true)}

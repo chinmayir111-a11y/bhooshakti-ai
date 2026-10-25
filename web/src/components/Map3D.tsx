@@ -38,7 +38,10 @@ export interface Pin {
 export interface Pulse { lon: number; lat: number; at: number; big?: boolean; color?: [number, number, number] }
 export interface ReportPoint { id: number; lat: number; lon: number; label?: string }
 export interface View { lon: number; lat: number; zoom?: number }
-export interface Layers3D { zones: boolean; reports: boolean; sensors: boolean; rain: boolean; roads: boolean; volunteers: boolean }
+export interface Layers3D { zones: boolean; reports: boolean; sensors: boolean; rain: boolean; roads: boolean; volunteers: boolean; quakes: boolean }
+
+/** A USGS earthquake (M4.5+) for the map rings. */
+export interface QuakePoint { lat: number; lon: number; mag: number; place: string; ago: string; depth_km: number }
 
 /** Gaon Prahari village volunteer with their last rain-gauge reading. */
 export interface VolunteerPoint {
@@ -56,6 +59,7 @@ interface Props {
   rainParticles?: number
   pins?: Pin[]
   volunteers?: VolunteerPoint[]
+  quakes?: QuakePoint[]
   pulses?: Pulse[]
   layers?: Partial<Layers3D>
   selectedZoneId?: number | null
@@ -288,6 +292,7 @@ function ourSources(): Record<string, any> {
     reports: { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 40, clusterMaxZoom: 13 },
     marker: { type: 'geojson', data: EMPTY },
     volunteers: { type: 'geojson', data: EMPTY },
+    quakes: { type: 'geojson', data: EMPTY },
   }
 }
 
@@ -332,6 +337,10 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
     { id: 'sensors', type: 'symbol', source: 'sensors', minzoom: 10,
       layout: { 'icon-image': ['case', ['boolean', ['get', 'live'], false], 'sensor-live', 'sensor-sim'],
                 'icon-size': 0.75, 'icon-allow-overlap': true } },
+    // Recent M4.5+ earthquakes (USGS): an amber ring sized by magnitude.
+    { id: 'quakes', type: 'circle', source: 'quakes',
+      paint: { 'circle-color': 'rgba(251,146,60,0.12)', 'circle-stroke-color': '#FB923C', 'circle-stroke-width': 2,
+               'circle-radius': ['interpolate', ['linear'], ['get', 'mag'], 4.5, 7, 6, 14, 7.5, 22], 'circle-pitch-alignment': 'map' } },
     // Village volunteers (Gaon Prahari): a person; grey when their gauge has gone
     // quiet in the rain, red ring at ALERT. Name and last reading from zoom 10.
     { id: 'volunteers', type: 'symbol', source: 'volunteers', minzoom: 8,
@@ -642,7 +651,7 @@ export default function Map3D(p: Props) {
     // One click handler, most specific first: a report cluster zooms in, a
     // report dot opens its card, a sensor shows its readings, a zone opens
     // its drawer. A small box around the pointer makes dots easy to hit.
-    const CLICKABLE = ['reports-clusters', 'reports', 'sensors', 'volunteers', 'zone-circle', 'zone-fill']
+    const CLICKABLE = ['reports-clusters', 'reports', 'sensors', 'volunteers', 'quakes', 'zone-circle', 'zone-fill']
     const hit = (pt: maplibregl.Point) => {
       if (!ready.current) return undefined
       const layers = CLICKABLE.filter((id) => m.getLayer(id) && m.getLayoutProperty(id, 'visibility') !== 'none')
@@ -665,6 +674,11 @@ export default function Map3D(p: Props) {
       } else if (f.layer.id === 'sensors') {
         popup.remove()
         sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(sensorHtml(q)).addTo(m)
+      } else if (f.layer.id === 'quakes') {
+        popup.remove()
+        const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+        sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(`<strong>M${Number(q.mag).toFixed(1)} earthquake</strong>`
+          + `<div class="tip-row">${esc(q.place)}</div><div class="tip-row muted">${esc(q.ago)} · depth ${Math.round(Number(q.depth_km))} km · USGS</div>`).addTo(m)
       } else if (f.layer.id === 'volunteers') {
         popup.remove()
         sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(volunteerHtml(q)).addTo(m)
@@ -784,6 +798,8 @@ export default function Map3D(p: Props) {
       type: 'Feature',
       properties: { ...v, label: `${v.name} · ${v.last_mm == null ? 'no reading' : `${v.last_mm.toFixed(0)} mm ${v.ago}`}` },
       geometry: { type: 'Point', coordinates: [v.lon, v.lat] } })) })
+    ;(m.getSource('quakes') as any)?.setData({ type: 'FeatureCollection', features: (props.current.quakes ?? []).map((q) => ({
+      type: 'Feature', properties: { ...q }, geometry: { type: 'Point', coordinates: [q.lon, q.lat] } })) })
   }
 
   // Rain radar: isobands over a box around the points, tweened from the
@@ -820,12 +836,13 @@ export default function Map3D(p: Props) {
   function syncVisibility() {
     const m = map.current
     if (!m || !ready.current) return
-    const L = { zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true, ...(props.current.layers ?? {}) }
+    const L = { zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true, quakes: true, ...(props.current.layers ?? {}) }
     const vis = (ids: string[], on: boolean) => ids.forEach((id) => { try { m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none') } catch { /* missing */ } })
     vis(['zone-fill', 'zone-glow-high', 'zone-glow-critical', 'zone-line', 'zone-labels', 'zone-circle', 'zone-pulse-HIGH', 'zone-pulse-CRITICAL', 'zone-circle-label'], L.zones)
     vis(['reports', 'reports-clusters', 'reports-count'], L.reports)
     vis(['sensors'], L.sensors)
     vis(['volunteers'], L.volunteers)
+    vis(['quakes'], L.quakes)
     vis(['rain-radar', 'rain-chips'], L.rain)
     vis(['zone-knockout'], L.rain && L.zones)
     vis(['roads', 'road-blocks', 'villages'], L.roads)
@@ -934,7 +951,7 @@ export default function Map3D(p: Props) {
 
   useEffect(() => { syncZones() }, [p.zones, p.selectedZoneId])          // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncRoads() }, [p.roads])                             // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports, p.volunteers])      // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports, p.volunteers, p.quakes])      // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncVisibility(); syncDeck() }, [p.layers?.zones, p.layers?.reports, p.layers?.sensors, p.layers?.rain, p.layers?.roads])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (ready.current) syncDeck() }, [p.pulses, p.rainParticles])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncRain() }, [p.rain])

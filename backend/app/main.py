@@ -40,7 +40,7 @@ from .routers import (
     weather,
     zones,
 )
-from .services import escalation, risk_service, spatial, weather_job
+from .services import escalation, quakes, risk_service, spatial, weather_job
 from .ws import manager
 
 logging.basicConfig(
@@ -95,6 +95,8 @@ async def lifespan(app: FastAPI):
     if settings.escalation_enabled:
         escalation.scheduler.start()
     weather_job.scheduler.start()
+    if settings.quake_feed_enabled:
+        quakes.feed.start()
 
     try:
         with session_scope() as db:
@@ -109,6 +111,7 @@ async def lifespan(app: FastAPI):
 
     escalation.scheduler.stop()
     weather_job.scheduler.stop()
+    quakes.feed.stop()
     ingest.stop()
     log.info("shutdown complete")
 

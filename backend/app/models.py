@@ -693,6 +693,24 @@ class Shelter(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Earthquake(Base):
+    """A USGS-catalogued earthquake near the North-East (feed cached every 15 min)."""
+
+    __tablename__ = "earthquakes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usgs_id: Mapped[str] = mapped_column(String(32), unique=True)
+    mag: Mapped[float] = mapped_column(Float)
+    place: Mapped[str] = mapped_column(String(200), default="")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    depth_km: Mapped[float] = mapped_column(Float, default=0.0)
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=True))
+    url: Mapped[str] = mapped_column(String(300), default="")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 __all__ = [
     "Role", "Severity", "SensorStatus", "RoadStatus", "ReportStatus", "Verdict",
     "DeliveryStatus", "User", "ZoneAssignment", "AuditLog", "Zone",
@@ -701,5 +719,5 @@ __all__ = [
     "RoadSegment", "Village", "Bridge", "SensorNode", "SensorReading",
     "ZoneRisk", "Alert", "AlertDelivery", "CitizenReport", "FieldReport",
     "ResponseAction", "AlertTier", "EscalationContact", "Subscriber", "Pincode",
-    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading", "Shelter",
+    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading", "Shelter", "Earthquake",
 ]

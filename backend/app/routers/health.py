@@ -108,3 +108,17 @@ def status(db: Session = Depends(get_db), _: Principal = Depends(require_roles("
     rows = checks(db)
     red = [r["label"] for r in rows if r["critical"] and r["status"] == "red"]
     return {"checked_at": datetime.now(timezone.utc).isoformat(), "checks": rows, "critical_red": red}
+
+
+@router.get("/quakes", summary="Recent M4.5+ earthquakes around the North-East (USGS)")
+def recent_quakes(days: int = 7, db: Session = Depends(get_db)) -> dict:
+    from ..services import quakes
+    return {"quakes": quakes.recent(db, min(max(days, 1), 30)), "feed": quakes.health_check(db), "source": "USGS"}
+
+
+def _register() -> None:
+    from ..services import quakes
+    CHECKS.append(quakes.health_check)
+
+
+_register()

@@ -4,7 +4,7 @@
  * networks and low-end phones. Same props as Map3D where they overlap.
  */
 import { useEffect, useRef } from 'react'
-import type { VolunteerPoint } from './Map3D'
+import type { QuakePoint, VolunteerPoint } from './Map3D'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { SEVERITY_FILL, asSeverity } from './Severity'
@@ -14,7 +14,7 @@ const INK = '#2F6B3A'
 
 export interface Layers {
   risk: boolean; roads: boolean; villages: boolean
-  sensors: boolean; historical: boolean; volunteers?: boolean
+  sensors: boolean; historical: boolean; volunteers?: boolean; quakes?: boolean
 }
 
 interface Props {
@@ -31,6 +31,7 @@ interface Props {
   pulses?: Array<{ lat: number; lon: number; at: number }>
   /** Gaon Prahari volunteers with their last gauge reading */
   volunteers?: VolunteerPoint[]
+  quakes?: QuakePoint[]
 }
 
 function createBaseLayer(): L.TileLayer {
@@ -42,7 +43,7 @@ function createBaseLayer(): L.TileLayer {
 const NER_CENTER: L.LatLngExpression = [26.2, 91.8]
 
 export default function MapView({
-  zones, infrastructure, sensors, historical, layers, selectedZoneId, onSelectZone, rain, pulses, volunteers,
+  zones, infrastructure, sensors, historical, layers, selectedZoneId, onSelectZone, rain, pulses, volunteers, quakes,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -67,6 +68,7 @@ export default function MapView({
       historical: L.layerGroup().addTo(map),
       pulses: L.layerGroup().addTo(map),
       volunteers: L.layerGroup().addTo(map),
+      quakes: L.layerGroup().addTo(map),
     }
     // The host is a flex cell on desktop but a fixed-height block on a phone.
     // Both change size without a window resize, which Leaflet does not notice
@@ -263,6 +265,18 @@ export default function MapView({
         .addTo(g)
     }
   }, [volunteers])
+
+  // --- recent earthquakes (USGS): amber rings sized by magnitude
+  useEffect(() => {
+    const g = groups.current.quakes
+    if (!g) return
+    g.clearLayers()
+    for (const q of quakes ?? []) {
+      L.circleMarker([q.lat, q.lon], { radius: 4 + (q.mag - 4.5) * 5, color: '#FB923C', weight: 2, fillColor: '#FB923C', fillOpacity: 0.12 })
+        .bindTooltip(`<strong>M${q.mag.toFixed(1)} earthquake</strong><br>${q.place.replace(/</g, '&lt;')}<br>${q.ago} · depth ${Math.round(q.depth_km)} km · USGS`)
+        .addTo(g)
+    }
+  }, [quakes])
 
   // --- layer visibility --------------------------------------------------
   useEffect(() => {

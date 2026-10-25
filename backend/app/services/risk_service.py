@@ -28,9 +28,9 @@ from ..ws import (
     manager,
 )
 from ml.features import FeatureRow, build_frame
-from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse
+from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse, severity_for
 from ml.rainfall_trend import forecast_24h, seasonal_normal_72h, window_totals
-from . import shelters, spatial, volunteers
+from . import quakes, shelters, spatial, volunteers
 
 log = logging.getLogger("bhooshakti.risk")
 
@@ -437,6 +437,16 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
             "text": (f"Village gauge at {gauge['place']}: {gauge['total_24h']:.0f} mm in 24 h "
                      f"({gauge['name']}, {ago}) — averaged with Open-Meteo's {model_24h:.0f} mm"),
         }] + list(result.contributing_factors))
+
+    # Shaking weakens slopes before the rain arrives: a recent nearby quake
+    # (USGS, M4.5+, <= 50 km, last 72 h) adds a bounded, fading boost.
+    quake = quakes.for_zone(db, zone.centroid_lat, zone.centroid_lon)
+    if quake:
+        score = round(min(100.0, result.risk_score + quake["points"]), 1)
+        result = dataclasses.replace(
+            result, risk_score=score, severity=severity_for(score),
+            contributing_factors=[{"key": "earthquake", "weight": quake["points"] / 100.0, "direction": "increases",
+                                   "text": quake["text"]}] + list(result.contributing_factors))
 
     previous = _latest_severity(db, zone.id)
     severity = Severity(result.severity)
