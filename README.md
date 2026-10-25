@@ -150,6 +150,13 @@ Two terminals (three if you want the phone app):
 | 2 | `make web` | `npm run dev` *(from `web\`)* |
 | 3 | `make mobile` | `npx expo start --web --port 8081` *(from `mobile\`)* |
 
+**For judging, use `make demo` instead of `make web`** (then open http://localhost:4173). It
+serves a production build: measured on a MacBook with a real GPU, the 3D map was ready in
+about 6–8 s on a first visit against 26 s from the dev server, which ships 4.8 MB of unbundled
+JavaScript. The alert list and the flat map appear in about 1–2 s either way. The rest of the
+3D wait is the terrain tiles coming from Amazon S3 in the US. Use the Demo menu's "Warm map
+cache" once before judging.
+
 From a clean clone, setup completes in **under 5 minutes** (about 25 seconds of that is
 seed + train; the rest is downloading dependencies).
 

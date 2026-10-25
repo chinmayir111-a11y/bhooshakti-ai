@@ -44,7 +44,7 @@ DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
 .PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters \
+        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters demo \
         train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
@@ -172,6 +172,9 @@ reset: seed import-landslides train backtest ## Rebuild data and model from scra
 
 api: ## Run the API on :8000
 	@cd backend && .venv/bin/python -m uvicorn app.main:app --reload --port 8000
+
+demo: ## Production build of the web app on :4173 — use this for judging (3D map ~4x faster than make web)
+	@cd web && npm run build && npx vite preview --port 4173 --host
 
 web: ## Run the dashboard on :5173
 	@cd web && npm run dev

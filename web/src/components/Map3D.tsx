@@ -274,8 +274,10 @@ function ourSources(): Record<string, any> {
     rain: { type: 'geojson', data: EMPTY },
     'rain-chips': { type: 'geojson', data: EMPTY },
     sat: { type: 'raster', tiles: SAT_TILES, tileSize: 256, attribution: SAT_ATTRIB, maxzoom: 18 },
-    dem: { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 15, attribution: TERRAIN_ATTRIB },
-    'dem-hs': { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 15 },
+    // DEM capped at z12 (~38 m/px here): above it MapLibre over-zooms the z12
+    // tile, which on these slopes looks the same and saves most terrain requests.
+    dem: { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 12, attribution: TERRAIN_ATTRIB },
+    'dem-hs': { type: 'raster-dem', tiles: DEM_TILES, tileSize: 256, encoding: 'terrarium', maxzoom: 12 },
     dim: { type: 'geojson', data: EMPTY },
     zones: { type: 'geojson', data: EMPTY, promoteId: 'id' },
     'zone-labels': { type: 'geojson', data: EMPTY },

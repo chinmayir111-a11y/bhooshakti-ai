@@ -10,6 +10,16 @@ import Moderation from '../pages/Moderation'
 import '../styles/theme.css'
 import { ControlCtx } from './context'
 
+// Open the connections to the map tile servers while the dashboard is still
+// loading, so the first terrain and base-map tiles do not pay for DNS + TLS.
+// Done here, not in index.html, so the citizen app never makes them.
+for (const href of ['https://s3.amazonaws.com', 'https://tiles.openfreemap.org', 'https://tile.openstreetmap.org', 'https://server.arcgisonline.com']) {
+  if (!document.querySelector(`link[rel="preconnect"][href="${href}"]`)) {
+    const l = document.createElement('link'); l.rel = 'preconnect'; l.href = href; l.crossOrigin = 'anonymous'
+    document.head.appendChild(l)
+  }
+}
+
 export default function ControlApp() {
   const [dark, setDark] = useLocalFlag('bhooshakti.dark', true)
   const [sources, setSources] = useLocalFlag('bhooshakti.sources', false)
