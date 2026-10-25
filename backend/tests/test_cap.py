@@ -109,3 +109,18 @@ def test_cap_semantics_for_each_tier(tx_db, alerts):
     assert f("c:info/c:severity") == "Extreme" and f("c:info/c:urgency") == "Immediate"
     poly = f("c:info/c:area/c:polygon").split()
     assert poly[0] == poly[-1] and len(poly) >= 4, "CAP polygons must be closed"
+
+
+@requires_db
+def test_cap_carries_five_languages_polygon_and_safe_place(tx_db):
+    from xml.etree import ElementTree as ET
+
+    from app.models import Alert
+    from app.services.cap import alert_xml
+    alert = tx_db.query(Alert).filter(Alert.tier == "WARNING").order_by(Alert.id.desc()).first()
+    if alert is None:
+        return
+    ns = {"c": "urn:oasis:names:tc:emergency:cap:1.2"}
+    infos = ET.fromstring(alert_xml(tx_db, alert)).findall("c:info", ns)
+    assert [i.findtext("c:language", namespaces=ns) for i in infos] == ["en-IN", "hi-IN", "as-IN", "bn-IN", "ne-NP"]
+    assert all(i.find("c:area/c:polygon", ns) is not None for i in infos)

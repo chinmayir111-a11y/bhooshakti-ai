@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Alert
+from ..notify import AlertPayload, templates
 
 CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
 ATOM_NS = "http://www.w3.org/2005/Atom"
@@ -30,6 +31,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 SEVERITY = {"LOW": "Minor", "MODERATE": "Moderate", "HIGH": "Severe", "CRITICAL": "Extreme"}
 LANG_TAG = {"en": "en-IN", "hi": "hi-IN", "as": "as-IN", "bn": "bn-IN", "ne": "ne-NP"}
+CAP_LANGS = ("en", "hi", "as", "bn", "ne")
 
 
 def cap_time(dt: datetime | None) -> str:
@@ -72,26 +74,10 @@ def _sub(parent: ET.Element, tag: str, value: str | None = None) -> ET.Element:
     return el
 
 
-def alert_element(db: Session, alert: Alert) -> ET.Element:
-    zone = db.execute(text("SELECT name, district, state FROM zones WHERE id = :z"),
-                      {"z": alert.zone_id}).mappings().first()
-    kind = _kind(alert)
-    parent = db.get(Alert, alert.parent_alert_id) if alert.parent_alert_id else None
-
-    root = ET.Element(f"{{{CAP_NS}}}alert")
-    _sub(root, "identifier", identifier(alert))
-    _sub(root, "sender", settings.cap_sender)
-    _sub(root, "sent", cap_time(alert.created_at))
-    _sub(root, "status", "Exercise")
-    msg_type = "Cancel" if kind == "all_clear" else ("Update" if parent else "Alert")
-    _sub(root, "msgType", msg_type)
-    _sub(root, "scope", "Public")
-    _sub(root, "note", "DEMO DATA — BHOOSHAKTI AI prototype (SIH 2026, PS 26001). Not an official warning.")
-    if parent is not None:
-        _sub(root, "references", f"{settings.cap_sender},{identifier(parent)},{cap_time(parent.created_at)}")
-
+def _info(root: ET.Element, db: Session, alert: Alert, kind: str, lang: str, zone, shelter: str | None,
+          poly: str | None) -> None:
     info = _sub(root, "info")
-    _sub(info, "language", LANG_TAG.get(alert.language, "en-IN"))
+    _sub(info, "language", LANG_TAG[lang])
     _sub(info, "category", "Geo")
     _sub(info, "event", "Landslide")
     if kind == "all_clear":
@@ -118,14 +104,26 @@ def alert_element(db: Session, alert: Alert) -> ET.Element:
     hours = 12 if alert.tier == "WARNING" else 6
     _sub(info, "expires", cap_time(created + timedelta(hours=hours)))
     _sub(info, "senderName", "BHOOSHAKTI AI — SIH 2026 prototype (demo)")
-    _sub(info, "headline", alert.title[:160])
-    _sub(info, "description", alert.message)
-    if kind == "advisory":
-        _sub(info, "instruction", "Stay alert, avoid the slope/road, await official confirmation.")
-    elif kind == "all_clear":
-        _sub(info, "instruction", "No action needed. The earlier advisory is cancelled.")
+    where = templates.SAFE_PLACE[lang].format(s=shelter) if shelter else ""
+    if lang == "en":
+        _sub(info, "headline", alert.title[:160])
+        _sub(info, "description", alert.message)
+        if kind == "advisory":
+            text_ = "Stay alert, avoid the slope/road, await official confirmation."
+        elif kind == "all_clear":
+            text_ = "No action needed. The earlier advisory is cancelled."
+        else:
+            text_ = "Move away from steep slopes and hill roads. Follow official instructions."
     else:
-        _sub(info, "instruction", "Move away from steep slopes and hill roads. Follow official instructions.")
+        local = templates.headline(AlertPayload(
+            alert_id=alert.id, zone_id=alert.zone_id, zone_code="", zone_name=alert.zone_name, district="",
+            state="", severity=alert.severity.value, risk_score=alert.risk_score, confidence=alert.confidence,
+            language=lang, tier=alert.tier, kind=kind if kind in templates.REPORT_TEXT else "risk",
+            place=alert.zone_name))
+        _sub(info, "headline", local[:160])
+        _sub(info, "description", local)
+        text_ = local
+    _sub(info, "instruction", f"{text_} {where}".strip())
     _sub(info, "web", f"{settings.public_dashboard_url}/control?zone={alert.zone_id}")
     for name, value in (("BHOOSHAKTI_TIER", alert.tier), ("BHOOSHAKTI_RISK_SCORE", f"{alert.risk_score:.0f}"),
                         ("BHOOSHAKTI_CONFIDENCE", f"{alert.confidence:.2f}"),
@@ -137,9 +135,39 @@ def alert_element(db: Session, alert: Alert) -> ET.Element:
     area = _sub(info, "area")
     desc = f"{zone['name']}, {zone['district']}, {zone['state']}" if zone else alert.zone_name
     _sub(area, "areaDesc", desc)
-    poly = _polygon(db, alert.zone_id)
     if poly:
         _sub(area, "polygon", poly)
+
+
+def alert_element(db: Session, alert: Alert) -> ET.Element:
+    zone = db.execute(text("SELECT name, district, state FROM zones WHERE id = :z"),
+                      {"z": alert.zone_id}).mappings().first()
+    kind = _kind(alert)
+    parent = db.get(Alert, alert.parent_alert_id) if alert.parent_alert_id else None
+
+    root = ET.Element(f"{{{CAP_NS}}}alert")
+    _sub(root, "identifier", identifier(alert))
+    _sub(root, "sender", settings.cap_sender)
+    _sub(root, "sent", cap_time(alert.created_at))
+    _sub(root, "status", "Exercise")
+    msg_type = "Cancel" if kind == "all_clear" else ("Update" if parent else "Alert")
+    _sub(root, "msgType", msg_type)
+    _sub(root, "scope", "Public")
+    _sub(root, "note", "DEMO DATA — BHOOSHAKTI AI prototype (SIH 2026, PS 26001). Not an official warning.")
+    if parent is not None:
+        _sub(root, "references", f"{settings.cap_sender},{identifier(parent)},{cap_time(parent.created_at)}")
+
+    # One <info> per language (CAP's way to carry translations): the official
+    # English text first, then Hindi, Assamese, Bengali and Nepali from the same
+    # templates the SMS uses. Every danger instruction names the safe place.
+    shelter = None
+    if kind != "all_clear":
+        from .shelters import for_zone
+        found = for_zone(db, alert.zone_id)
+        shelter = f"{found['name']} ({found['kind_label']})" if found else None
+    poly = _polygon(db, alert.zone_id)
+    for lang in ["en"] + [x for x in CAP_LANGS if x != "en"]:
+        _info(root, db, alert, kind, lang, zone, shelter, poly)
     return root
 
 

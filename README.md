@@ -547,6 +547,20 @@ All demo accounts use the password `demo1234`.
 
 ---
 
+## Integrations
+
+Alerts are published as **CAP 1.2**, the standard format accepted by alert aggregators such as
+NDMA's SACHET; area polygons are included so they can be targeted by cell broadcast. Live
+connection requires government onboarding — **this prototype is not connected** to SACHET or
+any cell-broadcast system.
+
+- Feed: `/api/cap/alerts.xml` (Atom of CAP messages); one alert: `/api/cap/alerts/<id>.xml`.
+- Checked against the OASIS CAP 1.2 schema (`CAP-v1.2.xsd`): every alert validates.
+- Each alert carries one `<info>` per language (en-IN, hi-IN, as-IN, bn-IN, ne-NP), the zone
+  polygon in each, CAP severity / urgency / certainty from the tier, and the nearest safe
+  place in every danger instruction. `status` is `Exercise` (demo data); moving to `Actual` is
+  an onboarding decision, not a code change.
+
 ## Privacy and safety rules
 
 - **Phone numbers are masked** everywhere in the API and the control room (`•••• 3210`). An

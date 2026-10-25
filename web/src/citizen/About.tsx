@@ -9,6 +9,7 @@ export default function CitizenAbout() {
     <Shell back title={t('about_title')}>
       <div className="step cz-about">
         <p style={{ fontSize: 17, color: 'var(--text)' }}>{t('about_body')}</p>
+        <p style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 10 }}>{t('about_integrations')}</p>
       </div>
       <p className="cz-notice">{t('emergency_line')}</p>
     </Shell>
