@@ -9,7 +9,7 @@
 import { IconCheck } from '../components/Pictograms'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { API_BASE, api, type CitizenReport } from '../api/client'
+import { API_BASE, api, getUser, type CitizenReport } from '../api/client'
 import { DemoBadge, PageTitle, Src, fmtTime, timeAgo } from '../components/common'
 import { useLive } from '../api/ws'
 import { countdown, useNow } from '../hooks'
@@ -47,6 +47,13 @@ export default function Moderation() {
   const [filter, setFilter] = useState('OPEN')
   const [notes, setNotes] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState<number | null>(null)
+  // Two-person rule (see Dashboard): CONFIRM prepares, then a second officer
+  // releases at once or the same officer after 30 s.
+  const [prepared, setPrepared] = useState<Record<number, { at: number; phones: number; population: number }>>({})
+  const [tick, setTick] = useState(0)
+  useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id) }, [])
+  void tick
+  const me = getUser()?.username
   const now = useNow(1000)
 
   const load = useCallback(() => {
@@ -129,7 +136,14 @@ export default function Moderation() {
                       <dl className="kv" style={{ marginTop: 10 }}>
                         <dt>Zone</dt><dd>{r.zone_id ? <Link to={`/control?zone=${r.zone_id}`}>{r.zone_name}</Link> : '—'}</dd>
                         <dt>Coordinates</dt><dd className="mono">{r.lat.toFixed(4)}, {r.lon.toFixed(4)}</dd>
-                        <dt>Phone</dt><dd className="mono">{r.phone || '—'}</dd>
+                        <dt>Phone</dt><dd className="mono">{r.phone || '—'}
+                          {r.phone?.startsWith('••••') && getUser()?.role === 'authority' && (
+                            <button className="btn ghost sm" style={{ marginLeft: 8 }} title="Shows the full number and records that you did"
+                                    onClick={() => act(r.id, async () => { const { phone } = await api.revealPhone(r.id); window.location.href = `tel:${phone}` })}>
+                              Call back
+                            </button>
+                          )}
+                        </dd>
                         <dt>Language</dt><dd>{r.language}</dd>
                       </dl>
                       <p className="notice tiny" style={{ marginTop: 12 }}>{r.geo_note}</p>
@@ -157,9 +171,24 @@ export default function Moderation() {
                                 <IconCheck size={15} />I'm checking (stop the clock)
                               </button>
                             )}
-                            <button className="btn confirm sm" disabled={busy === r.id} onClick={() => act(r.id, () => api.confirmReport(r.id, notes[r.id] ?? ''))}>
-                              CONFIRM: danger
-                            </button>
+                            {(() => {
+                              const mine = prepared[r.id]
+                              const other = r.confirm_prepared && r.confirm_prepared.by !== me
+                              const left = mine ? Math.max(0, Math.ceil(30 - (Date.now() - mine.at) / 1000)) : 0
+                              if (!mine && !other) return (
+                                <button className="btn confirm sm" disabled={busy === r.id} onClick={() => act(r.id, async () => {
+                                  const reach = await api.prepareConfirm(r.id)
+                                  setPrepared((p) => ({ ...p, [r.id]: { at: Date.now(), phones: reach.phones, population: reach.population } }))
+                                })}>CONFIRM: danger</button>
+                              )
+                              return (
+                                <button className="btn confirm sm" disabled={busy === r.id || left > 0}
+                                        title={mine ? `Alerts ${mine.phones} registered phones; about ${mine.population.toLocaleString()} people live in the zone` : `Prepared by ${r.confirm_prepared?.by}`}
+                                        onClick={() => act(r.id, () => api.confirmReport(r.id, notes[r.id] ?? ''))}>
+                                  {left > 0 ? `RELEASE WARNING in ${left} s` : other && !mine ? `RELEASE (prepared by ${r.confirm_prepared?.by})` : 'RELEASE WARNING'}
+                                </button>
+                              )
+                            })()}
                             <button className="btn dismiss sm" disabled={busy === r.id} onClick={() => act(r.id, () => api.dismissReport(r.id, notes[r.id] ?? ''))}>
                               DISMISS · all clear
                             </button>

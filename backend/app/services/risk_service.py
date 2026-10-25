@@ -329,6 +329,27 @@ def assess_series(rain: list[float], soil: list[float | None], *, label: str = "
 # ---------------------------------------------------------------------------
 
 
+WEATHER_STALE_HOURS = 3.0
+
+
+def data_caveats(db: Session, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Reasons this estimate is less certain than usual (shown as factors with
+    key `stale_*`; the dashboard turns any of them into a banner)."""
+    now = now or datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+    if settings.use_real_weather:
+        last = db.execute(text("SELECT MAX(fetched_at) FROM weather_fetches WHERE ok")).scalar()
+        age_h = (now - last).total_seconds() / 3600.0 if last else None
+        if age_h is None or age_h > WEATHER_STALE_HOURS:
+            when = f"{age_h:.0f} h old" if age_h is not None else "never fetched"
+            out.append({"key": "stale_weather", "weight": 0.0, "direction": "reduces",
+                        "text": f"Weather data is {when} — treat this as uncertain"})
+    if not registry.loaded:
+        out.append({"key": "stale_model", "weight": 0.0, "direction": "reduces",
+                    "text": "Trained model unavailable — rule-based estimate, treat this as uncertain"})
+    return out
+
+
 def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
                       raise_alerts: bool = True) -> dict[str, Any]:
     rain, soil, last_ts = _zone_series(db, zone.id)
@@ -397,6 +418,15 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
             contributing_factors=[{"key": "report_confirmed", "weight": 1.0, "direction": "increases",
                                    "text": f"Landslide report #{confirmed['id']} confirmed{who} — held at CRITICAL"}]
             + list(result.contributing_factors))
+
+    # No false confidence: old weather or no trained model is said out loud and
+    # costs confidence. The score itself keeps coming (rule-based fallback), so
+    # the map never goes blank.
+    caveats = data_caveats(db)
+    if caveats:
+        result = dataclasses.replace(
+            result, confidence=round(max(0.15, result.confidence * 0.7), 3),
+            contributing_factors=list(result.contributing_factors) + caveats)
 
     if gauge:
         hours = max(0.0, (datetime.now(timezone.utc) - gauge["read_at"]).total_seconds() / 3600.0)

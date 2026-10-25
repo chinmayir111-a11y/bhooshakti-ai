@@ -16,7 +16,7 @@ from typing import Any
 
 from ..config import settings
 from ..db import session_scope
-from . import openmeteo, risk_service
+from . import openmeteo, privacy, risk_service
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ def run_once() -> dict[str, Any]:
             fetched = openmeteo.refresh(db, history_days=settings.weather_archive_lag_days + 2)
             out["weather_ok"] = bool(fetched.get("ok"))
         results = risk_service.recompute_all(db, trigger="weather-refresh", raise_alerts=True)
+        out["privacy"] = privacy.purge(db)
     out["zones"] = len(results)
     out["alerts"] = [r["alert_id"] for r in results if r.get("alert_id")]
     return out

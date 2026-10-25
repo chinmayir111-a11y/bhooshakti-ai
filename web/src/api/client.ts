@@ -67,6 +67,10 @@ export interface CitizenReport {
   photo_path: string; voice_note_path: string; lat: number; lon: number; phone: string; language: string
   channel: string
   signs?: string[]
+  /** Two-person rule: step 1 of CONFIRM done by this officer, waiting for release. */
+  confirm_prepared?: { by: string; at: string } | null
+  /** Reports from the same sender in the last hour (new cards + folded repeats). */
+  sender_reports_1h?: number
   zone_id: number | null; zone_name: string | null
   geo_valid: boolean; geo_note: string; status: string
   corroboration_score: number; corroboration_reasons: CorroborationReason[]
@@ -244,6 +248,8 @@ export const api = {
   createReport: (body: Record<string, unknown>) => post('/reports', { device_id: deviceId(), ...body }),
   moderate: (id: number, decision: string, notes: string) => post(`/reports/${id}/moderate`, { decision, notes }),
   acknowledgeReport: (id: number) => post(`/reports/${id}/acknowledge`),
+  revealPhone: (id: number) => post(`/reports/${id}/callback`) as Promise<{ phone: string }>,
+  prepareConfirm: (id: number) => post(`/reports/${id}/confirm/prepare`),
   confirmReport: (id: number, notes = '') => post(`/reports/${id}/confirm`, { notes }),
   dismissReport: (id: number, notes = '') => post(`/reports/${id}/dismiss`, { notes }),
   geoCheck: (lat: number, lon: number) => request<any>(`/reports/geo-check?lat=${lat}&lon=${lon}`),

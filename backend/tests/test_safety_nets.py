@@ -134,8 +134,23 @@ def test_weather_job_pulls_recent_rain_then_rescores_with_alerts_on(monkeypatch)
                         lambda db, trigger, raise_alerts: calls.update(trigger=trigger, alerts=raise_alerts) or
                         [{"alert_id": None}, {"alert_id": 7}])
     monkeypatch.setattr(settings, "weather_provider", "open-meteo")
+    monkeypatch.setattr(weather_job.privacy, "purge", lambda db: {"numbers_hashed": 0, "media_deleted": 0})
 
     out = weather_job.run_once()
     assert calls["refresh"] == settings.weather_archive_lag_days + 2
     assert calls == {**calls, "trigger": "weather-refresh", "alerts": True}
     assert out["zones"] == 2 and out["alerts"] == [7]
+
+
+@requires_db
+def test_old_weather_is_flagged_and_costs_confidence(tx_db, monkeypatch):
+    from app.config import settings
+    from app.services.risk_service import data_caveats
+    monkeypatch.setattr(settings, "weather_provider", "open-meteo")
+    last = tx_db.execute(text("SELECT MAX(fetched_at) FROM weather_fetches WHERE ok")).scalar()
+    if last is None:
+        assert [c["key"] for c in data_caveats(tx_db)] == ["stale_weather"]
+        return
+    assert "stale_weather" not in [c["key"] for c in data_caveats(tx_db, now=last + timedelta(hours=1))]
+    stale = data_caveats(tx_db, now=last + timedelta(hours=5))
+    assert stale[0]["key"] == "stale_weather" and "treat this as uncertain" in stale[0]["text"]

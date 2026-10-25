@@ -390,6 +390,60 @@ def acknowledge(db: Session, report: CitizenReport, principal: Principal) -> Non
         report.acknowledged_by = principal.username
 
 
+# ---------------------------------------------------------------------------
+# Two-person rule for the biggest action: a WARNING to the public
+# ---------------------------------------------------------------------------
+
+RELEASE_WAIT_S = 30          # the same officer must wait this long after preparing
+PREPARE_VALID_MIN = 30       # a prepared confirmation expires after this
+
+
+def people_reached(db: Session, report: CitizenReport) -> dict[str, Any]:
+    """Who a WARNING for this report's zone would reach: registered phones
+    (SMS + voice) and, for context, how many people live in the zone."""
+    if not report.zone_id:
+        return {"phones": 0, "population": 0, "zone_name": None}
+    zone = db.get(Zone, report.zone_id)
+    phones = len(spatial.zone_subscribers(db, report.zone_id))
+    population = sum(int(v.get("population") or 0) for v in spatial.villages_in_zone(db, report.zone_id))
+    return {"phones": phones, "population": population, "zone_name": zone.name if zone else None}
+
+
+def latest_prepare(db: Session, report_id: int, now: datetime | None = None) -> dict[str, Any] | None:
+    now = now or datetime.now(timezone.utc)
+    row = db.execute(text("""
+        SELECT username, ts FROM audit_log
+        WHERE resource = 'citizen_report' AND resource_id = :i AND action = 'confirm_prepare' AND ts > :since
+        ORDER BY ts DESC LIMIT 1
+    """), {"i": str(report_id), "since": now - timedelta(minutes=PREPARE_VALID_MIN)}).mappings().first()
+    return {"by": row["username"], "at": _utc(row["ts"])} if row else None
+
+
+def prepare_confirm(db: Session, report: CitizenReport, principal: Principal) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    reach = people_reached(db, report)
+    audit(db, principal, "confirm_prepare", "citizen_report", report.id, detail=reach, commit=False)
+    db.commit()
+    return {**reach, "prepared_by": principal.username, "prepared_at": now.isoformat(),
+            "release_after_s": RELEASE_WAIT_S}
+
+
+def release_check(db: Session, report: CitizenReport, principal: Principal,
+                  now: datetime | None = None) -> str | None:
+    """None if this officer may release the WARNING now, else why not."""
+    now = now or datetime.now(timezone.utc)
+    prep = latest_prepare(db, report.id, now)
+    if prep is None:
+        return "Prepare the confirmation first: it shows how many people the WARNING will reach."
+    if prep["by"] != principal.username:
+        return None                               # a second officer releases at once
+    waited = (now - prep["at"]).total_seconds()
+    if waited < RELEASE_WAIT_S:
+        return (f"Two-person rule: ask a second officer to release it, or release it yourself "
+                f"in {RELEASE_WAIT_S - waited:.0f} s.")
+    return None
+
+
 def confirm(db: Session, report: CitizenReport, principal: Principal, notes: str = "") -> Alert | None:
     """CONFIRM: the report is real. Upgrades the advisory (or issues fresh) to
     a WARNING for the zone, which also sounds the siren."""

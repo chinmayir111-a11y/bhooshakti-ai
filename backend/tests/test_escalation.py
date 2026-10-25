@@ -255,3 +255,35 @@ def test_confirm_turns_the_zone_itself_critical(tx_db, pin_score, no_siren):
     row = tx_db.execute(text("SELECT severity::text AS s, risk_score, contributing_factors FROM zone_risk "
                              "WHERE zone_id = :z ORDER BY computed_at DESC, id DESC LIMIT 1"), {"z": r.zone_id}).mappings().first()
     assert row["s"] == "CRITICAL" and row["risk_score"] >= 75
+
+
+def test_two_person_rule_for_a_public_warning(tx_db, pin_score, no_siren):
+    """CONFIRM needs a prepare step; the same officer then waits 30 s, a second officer does not."""
+    from datetime import timedelta
+    from app.deps import Principal
+    from app.services import escalation
+    pin_score(40)
+    r = _report(tx_db, datetime.now(timezone.utc))
+    a, b = Principal(1, "authority", "authority"), Principal(2, "other.officer", "authority")
+    assert "Prepare the confirmation first" in escalation.release_check(tx_db, r, a)
+    reach = escalation.prepare_confirm(tx_db, r, a)
+    assert reach["zone_name"] and reach["release_after_s"] == 30
+    assert "second officer" in escalation.release_check(tx_db, r, a)          # same officer, at once
+    assert escalation.release_check(tx_db, r, b) is None                       # second officer, at once
+    later = datetime.now(timezone.utc) + timedelta(seconds=31)
+    assert escalation.release_check(tx_db, r, a, now=later) is None            # same officer, after 30 s
+
+
+def test_sos_stays_on_top_and_needs_a_note_to_close(tx_db, pin_score, no_siren):
+    import pytest
+    from fastapi import HTTPException
+    from app.routers.reports import _sos_needs_note, escalations
+    pin_score(5)
+    r = _report(tx_db, datetime.now(timezone.utc))
+    r.issue_type = "sos"
+    tx_db.flush()
+    assert escalations(include_checking=True, db=tx_db)[0]["id"] == r.id, "SOS first even with the lowest score"
+    with pytest.raises(HTTPException) as e:
+        _sos_needs_note(r, "  ")
+    assert e.value.status_code == 422
+    _sos_needs_note(r, "Family reached by phone, safe")

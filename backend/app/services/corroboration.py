@@ -39,6 +39,9 @@ POINTS = {
     "outside_zones": -30,
 }
 
+SELF_KEYS = ("sos", "photo")      # plus every sign_* key
+SELF_MAX = 60
+
 SENSOR_RADIUS_M = 2000.0
 SENSOR_WINDOW_H = 6
 CLUSTER_RADIUS_M = 1500.0
@@ -115,6 +118,15 @@ def score_evidence(e: Evidence) -> tuple[float, list[dict[str, Any]]]:
         add("photo", "Photo attached")
     if not e.geo_valid:
         add("outside_zones", "Location is outside every monitored zone")
+
+    # One person's own word — their SOS, photo and ticked signs — can carry a
+    # report to 60 at most. Past that it needs evidence they do not control:
+    # the zone's state, measured rain, a sensor, other phones.
+    own = sum(r["points"] for r in reasons if r["key"] in SELF_KEYS or r["key"].startswith("sign_"))
+    if own > SELF_MAX:
+        reasons.append({"key": "self_cap", "points": SELF_MAX - own,
+                        "text": f"One person's own report counts for at most {SELF_MAX} — "
+                                "higher needs independent evidence"})
 
     total = sum(r["points"] for r in reasons)
     return float(max(0, min(100, total))), reasons

@@ -205,3 +205,13 @@ def test_warning_signs_are_read_from_an_sms_report():
     assert c.signs == ["crack", "spring", "stones"]
     assert parse("LS 26.95300,88.32100 SINK tilt").signs == ["tilt", "sinking"]
     assert parse("SAFE 734101 CRACK").signs == [], "only reports carry signs"
+
+
+@requires_db
+def test_one_phone_cannot_flood_the_gateway(tx_db, monkeypatch):
+    from app.routers import inbound
+    monkeypatch.setattr(inbound, "SMS_PER_HOUR", 3)
+    phone = "+919811100099"
+    for _ in range(3):
+        assert "too many" not in inbound.handle_sms(tx_db, phone, "HELP")
+    assert "too many messages" in inbound.handle_sms(tx_db, phone, "HELP")

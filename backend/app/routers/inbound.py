@@ -83,11 +83,25 @@ def _locate(db: Session, loc: dict) -> tuple[float, float, int | None]:
     return lat, lon, None
 
 
+SMS_PER_HOUR = 20
+
+
 def handle_sms(db: Session, sender: str, body: str) -> str:
     """Parse, act, and return the reply text. Shared by every gateway format."""
     cmd = sms_keywords.parse(body)
     reply: str
     detail: dict[str, Any] = {"from": sender, "intent": cmd.intent, "body": body[:300]}
+
+    # One phone flooding the gateway: stop acting on it for the rest of the hour.
+    recent = db.execute(text("""
+        SELECT COUNT(*) FROM audit_log WHERE action = 'inbound_sms' AND resource_id = :p
+          AND ts > NOW() - INTERVAL '1 hour'
+    """), {"p": sender}).scalar() or 0
+    if recent >= SMS_PER_HOUR:
+        detail["rate_limited"] = True
+        audit(db, INBOUND, "inbound_sms", "sms", sender, detail=detail, commit=False)
+        db.commit()
+        return "BHOOSHAKTI [DEMO]: too many messages from this number in the last hour. In an emergency call 112."
 
     if cmd.intent == "help":
         reply = sms_keywords.HELP_TEXT

@@ -286,9 +286,28 @@ export default function Dashboard() {
 
   // Report buttons: a spinner while it runs, then a toast either way.
   const [openReportId, setOpenReportId] = useState<number | null>(null)
+  // Two-person rule: CONFIRM first shows who the WARNING reaches; a second
+  // officer releases it at once, the same officer after 30 s (server-enforced).
+  const [release, setRelease] = useState<{ r: CitizenReport; reach: any; by: string; at: number } | null>(null)
+  async function startConfirm(r: CitizenReport) {
+    const me = user?.username
+    if (r.confirm_prepared && r.confirm_prepared.by !== me) {
+      setRelease({ r, reach: null, by: r.confirm_prepared.by, at: new Date(r.confirm_prepared.at).getTime() }); return
+    }
+    const reach = await run(`confirm-${r.id}`, () => api.prepareConfirm(r.id))
+    if (reach) setRelease({ r, reach, by: reach.prepared_by, at: Date.now() })
+  }
   async function reportAction(r: CitizenReport, kind: 'ack' | 'confirm' | 'dismiss') {
+    if (kind === 'confirm' && release?.r.id !== r.id) { await startConfirm(r); return }
+    if (kind === 'confirm') setRelease(null)
+    // Closing an SOS either way needs a note (server-enforced).
+    let note = ''
+    if (r.issue_type === 'sos' && kind !== 'ack') {
+      note = window.prompt(`Closing an SOS needs a note: what happened? (${kind === 'confirm' ? 'confirming danger' : 'not real'})`)?.trim() ?? ''
+      if (!note) return
+    }
     const res: any = await run(`${kind}-${r.id}`,
-      () => (kind === 'ack' ? api.acknowledgeReport(r.id) : kind === 'confirm' ? api.confirmReport(r.id) : api.dismissReport(r.id)))
+      () => (kind === 'ack' ? api.acknowledgeReport(r.id) : kind === 'confirm' ? api.confirmReport(r.id, note) : api.dismissReport(r.id, note)))
     if (res === undefined) return
     pushToast(kind === 'ack' ? 'Marked as checking — the next officer will not be paged'
       : kind === 'confirm' ? (res.warning_alert_id ? 'Danger confirmed — alerts sent' : 'Confirmed — outside every zone, so no zone alert was sent')
@@ -485,12 +504,17 @@ export default function Dashboard() {
                         })}
                       </div>
                     )}
+                    {(r.sender_reports_1h ?? 0) >= 3 && (
+                      <p className="tiny sender-flag"><IconAlert size={13} /> {r.sender_reports_1h} reports from this sender in the last hour — check before acting</p>
+                    )}
                     <div style={{ marginTop: 6 }}><EscalationLine r={r} now={now} /></div>
                     <ul className="esc-reasons">{(r.corroboration_reasons ?? []).slice(0, 2).map((x) => <li key={x.key}><b>{x.points > 0 ? '+' : ''}{x.points}</b>{x.text}</li>)}</ul>
                     {isAuthority && (
                       <div className="esc-actions">
                         {!r.escalation?.acknowledged_at && <button className="btn ghost sm" disabled={busy !== null} onClick={() => reportAction(r, 'ack')}>{busy === `ack-${r.id}` ? <span className="spinner" /> : <IconCheck size={15} />}I'm checking</button>}
-                        <button className="btn confirm sm" disabled={busy !== null} onClick={() => reportAction(r, 'confirm')}>{busy === `confirm-${r.id}` && <span className="spinner" />}CONFIRM</button>
+                        <button className="btn confirm sm" disabled={busy !== null} onClick={() => reportAction(r, 'confirm')}
+                                title={r.confirm_prepared ? `Prepared by ${r.confirm_prepared.by} — a second officer can release it now` : 'Step 1 of 2: shows who the WARNING reaches'}>
+                          {busy === `confirm-${r.id}` && <span className="spinner" />}{r.confirm_prepared && r.confirm_prepared.by !== user?.username ? 'RELEASE' : 'CONFIRM'}</button>
                         <button className="btn dismiss sm" disabled={busy !== null} onClick={() => reportAction(r, 'dismiss')}>{busy === `dismiss-${r.id}` && <span className="spinner" />}DISMISS</button>
                         {r.lat && <button className="btn ghost sm" onClick={() => { setFlyTo({ lat: r.lat, lon: r.lon, zoom: 12 }); if (r.zone_id) setSelectedZoneId(r.zone_id) }}>Map</button>}
                       </div>
@@ -598,6 +622,9 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {release && <ReleaseDialog release={release} me={user?.username ?? ''} busy={busy !== null}
+                                 onCancel={() => setRelease(null)} onRelease={() => reportAction(release.r, 'confirm')} />}
+
       <div className="toasts">
         {toasts.map((t) => (
           <div className="toast" key={t.id}>{t.step && <div className="toast-step">{t.step}</div>}<div className="toast-text">{t.text}</div></div>
@@ -643,6 +670,44 @@ const WHAT_TO_DO: Record<Severity, string> = {
   MODERATE: 'Watch this zone. Tell road crews and village heads to stay alert.',
   HIGH: 'Check the slope. Warn villages below it and restrict the exposed road if rain continues.',
   CRITICAL: 'Act now: move people away from the slope, close the road, confirm the warning so sirens and SMS go out.',
+}
+
+/** Step 2 of CONFIRM: what the WARNING will do, and the release button. */
+function ReleaseDialog({ release, me, busy, onCancel, onRelease }: {
+  release: { r: CitizenReport; reach: any; by: string; at: number }; me: string; busy: boolean
+  onCancel: () => void; onRelease: () => void
+}) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id) }, [])
+  const second = release.by !== me
+  const left = second ? 0 : Math.max(0, Math.ceil(30 - (now - release.at) / 1000))
+  const reach = release.reach
+  return (
+    <div className="release-backdrop" role="dialog" aria-modal="true" aria-labelledby="release-title">
+      <div className="card release-card">
+        <div className="card-body">
+          <h3 id="release-title" style={{ margin: 0 }}>Release the WARNING{release.r.zone_name ? ` for ${release.r.zone_name}` : ''}?</h3>
+          {reach ? (
+            <p style={{ margin: '10px 0 0' }}>
+              This alerts <strong>{reach.phones} registered phone{reach.phones === 1 ? '' : 's'}</strong> by SMS and voice call
+              and sounds the zone siren. About <strong>{Number(reach.population).toLocaleString()}</strong> people live in the zone.
+            </p>
+          ) : (
+            <p style={{ margin: '10px 0 0' }}>Prepared by <strong>{release.by}</strong>. As the second officer you can release it now.</p>
+          )}
+          <p className="tiny muted" style={{ margin: '8px 0 0' }}>
+            Two-person rule: a second officer releases at once; the officer who prepared it can release after 30 seconds.
+          </p>
+          <div className="row" style={{ gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+            <button className="btn ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+            <button className="btn confirm" onClick={onRelease} disabled={busy || left > 0}>
+              {busy && <span className="spinner" />}{left > 0 ? `Release in ${left} s` : 'Release WARNING'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /** Safe places near the zone (OpenStreetMap). An officer can mark one unsafe —
@@ -710,6 +775,12 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volun
       <div className="drawer-body">
         {r ? (
           <>
+            {(r.contributing_factors ?? []).some((f: any) => /^stale_|^no_sensors$|^sensor_failure$/.test(f.key ?? '')) && (
+              <p className="notice stale-banner" role="status">
+                <IconAlert size={15} /> Data is stale — treat this as uncertain.{' '}
+                <span className="tiny">{(r.contributing_factors ?? []).filter((f: any) => /^stale_|^no_sensors$|^sensor_failure$/.test(f.key ?? '')).map((f: any) => f.text).join(' · ')}</span>
+              </p>
+            )}
             <div className="score-pair">
               <div className="score-cell"><div className="label">Risk score</div><div className="score-num">{Math.round(r.risk_score)}<small>/100</small></div></div>
               <div className="score-cell"><div className="label">How sure</div><div className="score-num">{Math.round(r.confidence * 100)}<small>%</small></div></div>

@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import text
+from sqlalchemy import case, text
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -19,6 +19,7 @@ from ..deps import Principal, audit, current_principal, require_authority
 from ..models import CitizenReport, ReportStatus, Zone
 from ..schemas import CitizenReportCreate, DecisionRequest, ModerationRequest
 from ..services import escalation, spatial
+from ..services import privacy
 from ..services import signs as sign_list
 from ..services.media import save_audio, save_photo
 from ..ws import EVENT_REPORT_MODERATED, EVENT_REPORT_NEW, EVENT_SUMMARY, manager
@@ -50,7 +51,7 @@ def serialise(db: Session, r: CitizenReport, zone_name: str | None = None) -> di
         "signs": list(r.signs or []),
         "lat": r.lat,
         "lon": r.lon,
-        "phone": r.phone,
+        "phone": privacy.mask(r.phone),        # full number only via /callback (audited)
         "language": r.language,
         "channel": r.channel,
         "zone_id": r.zone_id,
@@ -61,12 +62,26 @@ def serialise(db: Session, r: CitizenReport, zone_name: str | None = None) -> di
         "corroboration_score": r.corroboration_score,
         "corroboration_reasons": r.corroboration_reasons or [],
         "escalation": escalation.schedule(db, r),
+        "sender_reports_1h": _sender_count(db, r.id),
+        "confirm_prepared": (lambda p: {"by": p["by"], "at": p["at"].isoformat()} if p else None)(
+            escalation.latest_prepare(db, r.id)) if r.status == ReportStatus.PENDING else None,
         "moderated_by": r.moderated_by,
         "moderated_at": r.moderated_at.isoformat() if r.moderated_at else None,
         "moderation_notes": r.moderation_notes,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "demo_data": True,
     }
+
+
+def _sender_count(db: Session, report_id: int) -> int:
+    """Reports (new cards and folded repeats) from this report's sender in the
+    last hour — the card flags a sender who is sending many."""
+    return int(db.execute(text("""
+        SELECT COUNT(*) FROM audit_log a
+        WHERE a.resource = 'citizen_report' AND a.action IN ('create', 'folded') AND a.ts > NOW() - INTERVAL '1 hour'
+          AND a.detail->>'sender' = (SELECT detail->>'sender' FROM audit_log WHERE resource = 'citizen_report'
+                                     AND action = 'create' AND resource_id = :i LIMIT 1)
+    """), {"i": str(report_id)}).scalar() or 0)
 
 
 def _zone_name(db: Session, zone_id: int | None) -> str | None:
@@ -223,9 +238,17 @@ def escalations(include_checking: bool = Query(False, description="Also return r
     q = db.query(CitizenReport).filter(CitizenReport.status == ReportStatus.PENDING)
     if not include_checking:
         q = q.filter(CitizenReport.acknowledged_at.is_(None))
-    reports = q.order_by(CitizenReport.corroboration_score.desc(), CitizenReport.id).limit(100).all()
+    # An SOS stays at the top until an officer closes it, whatever its score.
+    sos_first = case((CitizenReport.issue_type == "sos", 0), else_=1)
+    reports = q.order_by(sos_first, CitizenReport.corroboration_score.desc(), CitizenReport.id).limit(100).all()
     names = {z.id: z.name for z in db.query(Zone).all()}
     return [serialise(db, r, names.get(r.zone_id)) for r in reports]
+
+
+def _sos_needs_note(report: CitizenReport, notes: str) -> None:
+    """Someone said they were in danger: closing that is never a one-click act."""
+    if report.issue_type == "sos" and not (notes or "").strip():
+        raise HTTPException(422, "An SOS can only be closed with a note saying what happened")
 
 
 def _load(db: Session, report_id: int) -> CitizenReport:
@@ -252,11 +275,32 @@ def acknowledge(report_id: int, request: Request, db: Session = Depends(get_db),
     return _broadcast(db, report)
 
 
+@router.post("/{report_id}/callback", summary="Reveal the reporter's number to call them back (audited)")
+def callback(report_id: int, request: Request, db: Session = Depends(get_db),
+             principal: Principal = Depends(require_authority)) -> dict:
+    report = _load(db, report_id)
+    if not report.phone or report.phone.startswith(privacy.HASH_PREFIX):
+        raise HTTPException(404, "No number on file for this report")
+    audit(db, principal, "reveal_phone", "citizen_report", report_id, request, commit=False)
+    db.commit()
+    return {"phone": report.phone}
+
+
+@router.post("/{report_id}/confirm/prepare", summary="Step 1 of CONFIRM: how many people the WARNING reaches")
+def confirm_prepare(report_id: int, db: Session = Depends(get_db),
+                    principal: Principal = Depends(require_authority)) -> dict:
+    return escalation.prepare_confirm(db, _load(db, report_id), principal)
+
+
 @router.post("/{report_id}/confirm", summary="CONFIRM — upgrade to a WARNING for the zone")
 def confirm(report_id: int, body: DecisionRequest, request: Request,
             db: Session = Depends(get_db),
             principal: Principal = Depends(require_authority)) -> dict:
     report = _load(db, report_id)
+    _sos_needs_note(report, body.notes)
+    why_not = escalation.release_check(db, report, principal)
+    if why_not:
+        raise HTTPException(409, why_not)
     warning = escalation.confirm(db, report, principal, body.notes)
     return {**_broadcast(db, report), "warning_alert_id": warning.id if warning else None}
 
@@ -266,6 +310,7 @@ def dismiss(report_id: int, body: DecisionRequest, request: Request,
             db: Session = Depends(get_db),
             principal: Principal = Depends(require_authority)) -> dict:
     report = _load(db, report_id)
+    _sos_needs_note(report, body.notes)
     follow_up = escalation.dismiss(db, report, principal, body.notes)
     return {**_broadcast(db, report), "all_clear_alert_id": follow_up.id if follow_up else None}
 
@@ -277,7 +322,12 @@ def moderate(report_id: int, body: ModerationRequest, request: Request,
     """Kept for the field app and older clients. APPROVED and REJECTED route
     through CONFIRM and DISMISS so the alert tiers stay consistent."""
     report = _load(db, report_id)
+    if body.decision in ("APPROVED", "REJECTED"):
+        _sos_needs_note(report, body.notes)
     if body.decision == "APPROVED":
+        why_not = escalation.release_check(db, report, principal)
+        if why_not:
+            raise HTTPException(409, why_not)
         escalation.confirm(db, report, principal, body.notes)
     elif body.decision == "REJECTED":
         escalation.dismiss(db, report, principal, body.notes)

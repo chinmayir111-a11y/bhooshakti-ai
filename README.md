@@ -547,6 +547,28 @@ All demo accounts use the password `demo1234`.
 
 ---
 
+## Privacy and safety rules
+
+- **Phone numbers are masked** everywhere in the API and the control room (`•••• 3210`). An
+  authority can reveal one to call the reporter back ("Call back" on the Reports page); every
+  reveal is written to the audit log.
+- **After 90 days** a report's number is replaced by a keyed hash (still usable to tell
+  senders apart, useless for calling), and its photo and voice note are deleted — unless the
+  report was **confirmed** as a real event, in which case the evidence is kept. This runs with
+  the 30-minute weather job (`app/services/privacy.py`).
+- **Two-person rule:** an officer's CONFIRM first shows how many registered phones the WARNING
+  will reach; a second officer releases it at once, or the same officer after 30 seconds
+  (enforced by the API). Automatic advisories are unchanged.
+- **Abuse limits:** 5 report cards per sender per hour (more fold into their latest card; an
+  SOS is never refused), 20 SMS commands per phone per hour, a "many reports from this sender"
+  flag on the card, and one person's own SOS + photo + signs can lift a report's trust score to
+  60 at most — higher needs evidence they do not control.
+- **SOS:** always at the top of "Waiting for check", never closed automatically, and closing
+  one (either way) requires a note.
+- **No false confidence:** weather older than 3 h, missing sensors or a missing model are shown
+  as "Data is stale — treat this as uncertain" and lower the confidence; the rule-based
+  fallback keeps producing a score, so the map never goes blank.
+
 ## Two apps in one
 
 | URL | Who | What |
