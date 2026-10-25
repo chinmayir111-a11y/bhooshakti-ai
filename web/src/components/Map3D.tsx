@@ -29,8 +29,12 @@ import { prefersReducedMotion } from '../hooks'
 import { SEVERITY_FILL, asSeverity } from './Severity'
 
 /** One zone's rain: this hour (drives the radar) and the 24 h total (the chip). */
-export interface RainPoint { lat: number; lon: number; mm: number; mm24?: number }
-export interface Pin { lon: number; lat: number; live?: boolean; failed?: boolean; anomalous?: boolean; label?: string; source?: string }
+export interface RainPoint { lat: number; lon: number; mm: number; mm24?: number; /** Move the 24 h chip off the point, in ems. */ chipOffset?: [number, number] }
+export interface Pin {
+  lon: number; lat: number; live?: boolean; failed?: boolean; anomalous?: boolean; label?: string; source?: string
+  /** For the click popup: node id, latest tilt (deg) and soil moisture (%), last seen. */
+  node?: string; tilt?: number | null; soil?: number | null; seen?: string
+}
 export interface Pulse { lon: number; lat: number; at: number; big?: boolean; color?: [number, number, number] }
 export interface ReportPoint { id: number; lat: number; lon: number; label?: string }
 export interface View { lon: number; lat: number; zoom?: number }
@@ -49,9 +53,11 @@ interface Props {
   layers?: Partial<Layers3D>
   selectedZoneId?: number | null
   onSelectZone?: (id: number) => void
+  /** A citizen-report dot was clicked. */
+  onSelectReport?: (id: number) => void
   flyTo?: { lat: number; lon: number; zoom?: number } | null
   /** Replay: centre on a point; `orbitActive` turns the slow rotation on. */
-  orbit?: { lat: number; lon: number; zoom?: number } | null
+  orbit?: { lat: number; lon: number; zoom?: number; pitch?: number } | null
   orbitActive?: boolean
   dark?: boolean
   terrain?: boolean
@@ -62,8 +68,19 @@ interface Props {
   idleRotate?: boolean
   /** Fly over these points once (bump `id` to start) so their tiles are cached. */
   tour?: { id: number; stops: View[]; onDone?: () => void } | null
-  /** Bump to return to the default view (fit to the monitored zones). */
+  /** Bump to show all zones (fit every monitored zone). */
   resetSignal?: number
+  /** Replay: a red pin with a pulsing ring and a label, shown the whole time. */
+  marker?: { lat: number; lon: number; label: string } | null
+  /** Override the relief (replay uses a softer look than the control room). */
+  exaggeration?: number
+  hillshade?: number
+  /** Called once the base map (and terrain) are actually drawn — the page can
+   *  keep a lighter map on screen until then. */
+  onReady?: () => void
+  /** Called if this device cannot draw the 3D map (no WebGL, context lost,
+   *  or nothing drawn after 45 s). */
+  onFail?: (why: string) => void
 }
 
 const STYLE_URL = { dark: 'https://tiles.openfreemap.org/styles/dark', light: 'https://tiles.openfreemap.org/styles/positron' }
@@ -75,12 +92,27 @@ const OSM_TILES = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png']
 const TERRAIN_ATTRIB = 'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)'
 const SAT_ATTRIB = 'Imagery © Esri, Maxar, Earthstar Geographics'
 const OSM_ATTRIB = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-const EXAGGERATION = 1.2
+const EXAGGERATION = 1.4
+// Every camera move in the control room passes these explicitly, so nothing
+// (fitBounds, a style swap, a fly-to) can leave the map flat and top-down.
+const PITCH = 55
+const BEARING = -15
 const IDLE_MS = 30000
 // North-East India: users cannot pan off into Tibet or the Bay of Bengal.
 const MAX_BOUNDS: LngLatBoundsLike = [[85.5, 20.5], [98.8, 30.2]]
 const DEFAULT_BOUNDS: LngLatBoundsLike = [[87.9, 22.5], [96.2, 28.6]]
+/** North-East India + the Darjeeling hills, roughly. Basemap place labels are
+ *  kept only inside it, so Nepal, Tibet, Bhutan and Bangladesh names never
+ *  show on a map about Indian districts. */
+const NE_INDIA = { type: 'Polygon', coordinates: [[
+  [88.0, 26.35], [87.98, 27.1], [88.15, 27.95], [88.9, 28.15], [88.95, 27.3], [89.8, 26.75], [91.0, 26.8], [92.05, 26.85],
+  [92.0, 27.8], [93.6, 28.35], [94.5, 29.25], [96.0, 29.45], [97.45, 28.3], [96.6, 27.3], [95.25, 26.6], [95.2, 25.6],
+  [94.65, 24.7], [94.2, 23.9], [93.4, 23.0], [93.2, 21.95], [92.6, 21.95], [92.3, 23.0], [92.2, 24.05], [91.95, 24.2],
+  [91.6, 24.1], [91.4, 23.4], [91.55, 22.95], [91.15, 23.05], [91.05, 23.6], [91.15, 24.1], [91.9, 24.4], [92.2, 24.9],
+  [91.6, 25.15], [90.6, 25.2], [89.85, 25.3], [89.85, 26.0], [89.05, 26.25], [88.45, 26.3], [88.0, 26.35],
+]] }
 const EMPTY = { type: 'FeatureCollection', features: [] as any[] }
+const PULSE_R = { HIGH: 15, CRITICAL: 18 } as const
 const SEV = ['match', ['get', 'severity']]
 const ENGLISH = ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name']]
 const HIDE = /poi|airport|place_other|place_suburb|label_other|highway-name-path|highway-name-minor|highway_name_other|road_oneway|building|shield_us|us-interstate|aeroway|pier/
@@ -193,21 +225,30 @@ function tune(base: any, dark: boolean): any {
     const L = { ...l, layout: { ...(l.layout ?? {}) }, paint: { ...(l.paint ?? {}) } }
     const id: string = L.id
     if (HIDE.test(id)) L.layout.visibility = 'none'
+    // The dark style asks for 'wood-pattern' and 'circle-11', which its own
+    // sprite does not have: draw forest as a plain fill, town labels as text only.
+    if (L.paint['fill-pattern'] !== undefined) { delete L.paint['fill-pattern']; L.paint['fill-color'] = dark ? '#2F4237' : '#DDE5D6'; L.paint['fill-opacity'] = 0.7 }
+    if (L.type === 'symbol' && /place/.test(id) && L.layout['icon-image'] !== undefined) delete L.layout['icon-image']
     if (MINOR.test(id) || /village/.test(id)) L.minzoom = Math.max(L.minzoom ?? 0, 13)
+    if (L.type === 'symbol' && /country|state|continent|ocean|sea\b|marine/.test(id)) L.layout.visibility = 'none'
+    if (L.type === 'symbol' && /place|city|town|village|suburb|hamlet/.test(id)) L.filter = L.filter ? ['all', L.filter, ['within', NE_INDIA]] : ['within', NE_INDIA]
     if (L.type === 'symbol' && L.layout['text-field'] !== undefined) {
       L.layout['text-field'] = ENGLISH
-      L.paint['text-color'] = dark ? '#B9C6C0' : '#3E4C59'
+      L.paint['text-color'] = dark ? (/city|town|capital/.test(id) ? '#EEF3F0' : '#B9C6C0') : '#3E4C59'
       L.paint['text-halo-color'] = dark ? '#0F1A17' : '#F4F1EA'
       L.paint['text-halo-width'] = 1.2
     }
     if (dark) {
-      if (L.type === 'background') L.paint['background-color'] = '#0F1A17'
-      else if (L.type === 'fill' && /water/.test(id)) L.paint['fill-color'] = '#1E3A4A'
-      else if (L.type === 'line' && /waterway/.test(id)) L.paint['line-color'] = '#1E3A4A'
-      else if (L.type === 'fill') { L.paint['fill-color'] = '#13201C'; L.paint['fill-opacity'] = 0.6 }
+      // Soft green-grey land, clear blue water, major roads readable.
+      if (L.type === 'background') L.paint['background-color'] = '#2A3832'
+      else if (L.type === 'fill' && /water/.test(id)) { L.paint['fill-color'] = '#2D5F80'; L.paint['fill-opacity'] = 1 }
+      else if (L.type === 'line' && /waterway/.test(id)) L.paint['line-color'] = '#2D5F80'
+      else if (L.type === 'fill' && /wood|forest|grass|park|landcover|vegetation/.test(id)) { L.paint['fill-color'] = '#2F4237'; L.paint['fill-opacity'] = 0.7 }
+      else if (L.type === 'fill') { L.paint['fill-color'] = '#2E3B35'; L.paint['fill-opacity'] = 0.6 }
       else if (L.type === 'line' && /boundary/.test(id)) { L.paint['line-color'] = 'rgba(232,239,234,.35)'; delete L.paint['line-dasharray'] }
-      else if (L.type === 'line' && /casing/.test(id)) L.paint['line-color'] = '#0B1411'
-      else if (L.type === 'line') L.paint['line-color'] = '#3A4842'
+      else if (L.type === 'line' && /casing/.test(id)) L.paint['line-color'] = '#1A2420'
+      else if (L.type === 'line' && /motorway|trunk|primary|major/.test(id)) L.paint['line-color'] = '#9AA8A0'
+      else if (L.type === 'line') L.paint['line-color'] = '#56645D'
     } else if (L.type === 'line' && /boundary/.test(id)) L.paint['line-color'] = 'rgba(62,76,89,.45)'
     return L
   })
@@ -216,7 +257,8 @@ function tune(base: any, dark: boolean): any {
 
 function sky(dark: boolean): any {
   return dark
-    ? { 'sky-color': '#0E1512', 'horizon-color': '#1F2A24', 'fog-color': '#0F1A17', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.3, 'atmosphere-blend': 0.4 }
+    // A soft dusk sky and haze, so the top of a tilted view is never blank.
+    ? { 'sky-color': '#3E5866', 'horizon-color': '#8FA6A3', 'fog-color': '#3A4B45', 'sky-horizon-blend': 0.65, 'horizon-fog-blend': 0.55, 'fog-ground-blend': 0.55, 'atmosphere-blend': 0.6 }
     : { 'sky-color': '#BFD3DE', 'horizon-color': '#EDEBE4', 'fog-color': '#F4F1EA', 'sky-horizon-blend': 0.55, 'horizon-fog-blend': 0.75, 'fog-ground-blend': 0.3, 'atmosphere-blend': 0.6 }
 }
 
@@ -235,6 +277,7 @@ function ourSources(): Record<string, any> {
     villages: { type: 'geojson', data: EMPTY },
     sensors: { type: 'geojson', data: EMPTY },
     reports: { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 40, clusterMaxZoom: 13 },
+    marker: { type: 'geojson', data: EMPTY },
   }
 }
 
@@ -244,37 +287,41 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
   return [
     { id: 'sat', type: 'raster', source: 'sat', layout: { visibility: satellite ? 'visible' : 'none' },
       paint: dark ? { 'raster-saturation': -0.25, 'raster-brightness-max': 0.7 } : { 'raster-saturation': 0.05 } },
-    // From zoom 7 only: at the regional view it reads as noise, not depth.
-    { id: 'hillshade', type: 'hillshade', source: 'dem-hs', minzoom: 7,
-      paint: { 'hillshade-exaggeration': satellite ? 0.12 : 0.25, 'hillshade-shadow-color': '#0A1210',
-               'hillshade-highlight-color': dark ? '#243029' : '#FFFFFF', 'hillshade-accent-color': dark ? '#0A1210' : '#6A7A6E' } },
+    // Relief from the regional view down; gentler far out, where it would read as noise.
+    { id: 'hillshade', type: 'hillshade', source: 'dem-hs', minzoom: 5,
+      paint: { 'hillshade-exaggeration': satellite ? 0.12 : 0.45, 'hillshade-shadow-color': '#030605',
+               'hillshade-highlight-color': dark ? '#4A5C53' : '#FFFFFF', 'hillshade-accent-color': dark ? '#050A08' : '#6A7A6E' } },
     { id: 'dim', type: 'fill', source: 'dim', paint: { 'fill-color': dark ? '#0F1A17' : '#F4F1EA', 'fill-opacity': 0.55 } },
     { id: 'rain-radar', type: 'fill', source: 'rain', paint: { 'fill-color': ['get', 'c'], 'fill-antialias': false,
                // Light rain stays a faint wash; heavy cores read at full strength.
                'fill-opacity': ['interpolate', ['linear'], ['get', 'level'], 1, 0.28, 10, 0.5, 30, 0.6] } },
     // Knocks the radar out inside zones so red over blue never turns pink
     // (pink is the 60+ mm rain colour); the chip still gives that zone's rain.
-    { id: 'zone-knockout', type: 'fill', source: 'zones', paint: { 'fill-color': dark ? '#0F1A17' : '#F4F1EA', 'fill-opacity': 0.8, 'fill-antialias': false } },
-    { id: 'zone-fill', type: 'fill', source: 'zones',
+    { id: 'zone-knockout', type: 'fill', source: 'zones', minzoom: 8.5,
+      paint: { 'fill-color': dark ? '#0F1A17' : '#F4F1EA', 'fill-antialias': false, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8.5, 0, 9.3, 0.8] } },
+    // Zone polygons from zoom 9 (below that each zone is a circle, see zone-circle).
+    { id: 'zone-fill', type: 'fill', source: 'zones', minzoom: 8.5,
       paint: { 'fill-color': ['to-color', ['get', 'color']],
-               'fill-opacity': ['+', [...SEV, 'LOW', 0.10, 'MODERATE', 0.25, 'HIGH', 0.40, 'CRITICAL', 0.55, 0.1], ['case', hover, 0.15, 0]] } },
-    { id: 'zone-glow-high', type: 'line', source: 'zones', filter: ['==', ['get', 'severity'], 'HIGH'],
+               'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8.5, 0, 9.3,
+                 ['+', [...SEV, 'LOW', 0.15, 'MODERATE', 0.25, 'HIGH', 0.38, 'CRITICAL', 0.5, 0.15], ['case', hover, 0.15, 0]]] } },
+    { id: 'zone-glow-high', type: 'line', source: 'zones', minzoom: 8.5, filter: ['==', ['get', 'severity'], 'HIGH'],
       paint: { 'line-color': ['to-color', ['get', 'color']], 'line-width': 12, 'line-blur': 8, 'line-opacity': 0.45 } },
-    { id: 'zone-glow-critical', type: 'line', source: 'zones', filter: ['==', ['get', 'severity'], 'CRITICAL'],
+    { id: 'zone-glow-critical', type: 'line', source: 'zones', minzoom: 8.5, filter: ['==', ['get', 'severity'], 'CRITICAL'],
       paint: { 'line-color': ['to-color', ['get', 'color']], 'line-width': 16, 'line-blur': 10, 'line-opacity': 0.5 } },
-    { id: 'zone-line', type: 'line', source: 'zones',
+    { id: 'zone-line', type: 'line', source: 'zones', minzoom: 8.5,
       paint: { 'line-color': ['case', sel, dark ? '#FFFFFF' : '#1F2A33', ['to-color', ['get', 'color']]],
-               'line-width': ['case', sel, 3, 1.5], 'line-opacity': ['case', sel, 1, hover, 1, 0.85] } },
-    { id: 'roads', type: 'line', source: 'roads',
-      paint: { 'line-color': ['match', ['get', 'status'], 'BLOCKED', '#FB923C', 'RESTRICTED', '#E3B23C', dark ? '#6B7A74' : '#8A9790'],
-               'line-width': ['match', ['get', 'status'], 'BLOCKED', 4, ['case', ['==', ['get', 'criticality'], 'lifeline'], 2.4, 1.6]],
-               'line-opacity': 0.95 } },
-    { id: 'road-blocks', type: 'symbol', source: 'road-blocks', minzoom: 8, layout: { 'icon-image': 'blocked', 'icon-size': 1, 'icon-allow-overlap': true } },
+               'line-width': ['case', sel, 3, 2], 'line-opacity': ['interpolate', ['linear'], ['zoom'], 8.5, 0, 9.3, 1] } },
+    // Only roads that cut villages off: solid orange, from zoom 9.
+    { id: 'roads', type: 'line', source: 'roads', minzoom: 9, filter: ['==', ['get', 'status'], 'BLOCKED'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#FB923C', 'line-width': 4, 'line-opacity': 0.95 } },
+    { id: 'road-blocks', type: 'symbol', source: 'road-blocks', minzoom: 9, layout: { 'icon-image': 'blocked', 'icon-size': 1, 'icon-allow-overlap': true } },
     { id: 'villages', type: 'symbol', source: 'villages', minzoom: 8.5,
       layout: { 'icon-image': ['case', ['boolean', ['get', 'is_cut_off'], false], 'house-cut', 'house'], 'icon-size': 1, 'icon-allow-overlap': true } },
-    { id: 'sensors', type: 'symbol', source: 'sensors', minzoom: 7.5,
-      layout: { 'icon-image': ['case', ['boolean', ['get', 'anomalous'], false], 'sensor-anomaly', ['boolean', ['get', 'live'], false], 'sensor-live', 'sensor-sim'],
-                'icon-size': 1, 'icon-allow-overlap': true } },
+    // Sensors: small grey diamonds (mint glow = LIVE hardware), from zoom 10.
+    { id: 'sensors', type: 'symbol', source: 'sensors', minzoom: 10,
+      layout: { 'icon-image': ['case', ['boolean', ['get', 'live'], false], 'sensor-live', 'sensor-sim'],
+                'icon-size': 0.75, 'icon-allow-overlap': true } },
     { id: 'reports-clusters', type: 'circle', source: 'reports', filter: ['has', 'point_count'],
       paint: { 'circle-color': '#DC2626', 'circle-radius': ['step', ['get', 'point_count'], 13, 5, 16, 10, 20], 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } },
     { id: 'reports-count', type: 'symbol', source: 'reports', filter: ['has', 'point_count'],
@@ -284,6 +331,22 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
     { id: 'zone-labels', type: 'symbol', source: 'zone-labels', minzoom: 9,
       layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12.5, 'text-anchor': 'center', 'text-allow-overlap': false },
       paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#0F1A17', 'text-halo-width': 1.5 } },
+    // Below zoom 9 every zone is a circle at its centre: size and colour by
+    // severity, white rim, name beside it. HIGH/CRITICAL get a pulsing ring.
+    // One pulse layer per severity with a constant radius: animating a plain
+    // number is a cheap uniform update; a data-driven radius would rebuild
+    // the layer's buckets every frame and stall the map.
+    ...(['HIGH', 'CRITICAL'] as const).map((sev) => ({
+      id: `zone-pulse-${sev}`, type: 'circle', source: 'zone-labels', maxzoom: 9.4, filter: ['==', ['get', 'severity'], sev],
+      paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': PULSE_R[sev], 'circle-stroke-color': SEVERITY_FILL[sev], 'circle-stroke-width': 2,
+               'circle-stroke-opacity': 0, 'circle-pitch-alignment': 'viewport' } })),
+    { id: 'zone-circle', type: 'circle', source: 'zone-labels', maxzoom: 9.4,
+      paint: { 'circle-color': ['to-color', ['get', 'color']], 'circle-radius': ['get', 'r'], 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2,
+               'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8.6, 1, 9.3, 0], 'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8.6, 1, 9.3, 0],
+               'circle-pitch-alignment': 'viewport' } },
+    { id: 'zone-circle-label', type: 'symbol', source: 'zone-labels', maxzoom: 9.4,
+      layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12, 'text-anchor': 'left', 'text-offset': [1.6, 0], 'text-optional': true },
+      paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#0F1A17', 'text-halo-width': 1.5, 'text-opacity': ['interpolate', ['linear'], ['zoom'], 8.6, 1, 9.3, 0] } },
   ]
 }
 
@@ -292,14 +355,26 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
 // layer would otherwise draw across the chips.
 const RAIN_CHIPS = { id: 'rain-chips', type: 'symbol', source: 'rain-chips', minzoom: 10,
   layout: { 'icon-image': ['get', 'chip'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 4, 1, 2], 'icon-allow-overlap': true,
-            'text-field': ['get', 'label'], 'text-font': FONT, 'text-size': 11.5, 'text-anchor': 'center', 'text-allow-overlap': true, 'text-ignore-placement': true },
+            'text-field': ['get', 'label'], 'text-font': FONT, 'text-size': 11.5, 'text-anchor': 'center', 'text-allow-overlap': true, 'text-ignore-placement': true,
+            'text-offset': ['get', 'off'] },
   paint: { 'text-color': '#FFFFFF', 'text-halo-color': 'rgba(15,26,23,.55)', 'text-halo-width': 0.8 } }
+
+// Replay's landslide spot: pulsing ring + red pin + label, above everything.
+const MARKER_LAYERS = [
+  { id: 'marker-ring', type: 'circle', source: 'marker',
+    paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': 14, 'circle-stroke-color': '#DC2626', 'circle-stroke-width': 3, 'circle-stroke-opacity': 0.8, 'circle-pitch-alignment': 'map' } },
+  { id: 'marker-pin', type: 'symbol', source: 'marker',
+    layout: { 'icon-image': 'pin', 'icon-anchor': 'bottom', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+              'text-field': ['get', 'label'], 'text-font': FONT, 'text-size': 13, 'text-anchor': 'top', 'text-offset': [0, 0.5], 'text-max-width': 30,
+              'text-allow-overlap': true, 'text-ignore-placement': true },
+    paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#7F1D1D', 'text-halo-width': 2 } },
+]
 
 function compose(base: any, satellite: boolean, dark: boolean): any {
   const layers: any[] = base.layers ?? []
   let cut = layers.findIndex((l) => l.type === 'symbol')
   if (cut < 0) cut = layers.length
-  return { ...base, sources: { ...base.sources, ...ourSources() }, layers: [...layers.slice(0, cut), ...ourLayers(satellite, dark), ...layers.slice(cut), RAIN_CHIPS], sky: sky(dark) }
+  return { ...base, sources: { ...base.sources, ...ourSources() }, layers: [...layers.slice(0, cut), ...ourLayers(satellite, dark), ...layers.slice(cut), RAIN_CHIPS, ...MARKER_LAYERS], sky: sky(dark) }
 }
 
 /** Marker images drawn on a canvas: no sprite sheet to host, re-added after every style swap. */
@@ -317,7 +392,7 @@ function addIcons(m: MLMap) {
     c.fillStyle = fill; c.fill(); c.shadowBlur = 0; c.lineWidth = 1.5; c.strokeStyle = stroke; c.stroke()
   })
   const icons: Record<string, ImageData> = {
-    'sensor-sim': diamond('#8A9C94', '#0F1A17'),
+    'sensor-sim': diamond('#9AA8A0', '#0F1A17'),
     'sensor-live': diamond('#7FD1AE', '#0F1A17', 'rgba(127,209,174,.9)'),
     'sensor-anomaly': makeIcon(28, (c, s) => {
       const h = s / 2
@@ -341,6 +416,14 @@ function addIcons(m: MLMap) {
     c.beginPath(); c.moveTo(x, y); c.lineTo(x + w / 2, 3); c.lineTo(x + w, y); c.lineTo(x + w, y + hgt); c.lineTo(x, y + hgt); c.closePath()
     c.fillStyle = fill; c.fill(); c.lineWidth = 1.5; c.strokeStyle = stroke; c.stroke()
   }
+  icons.pin = (() => {
+    const cv = document.createElement('canvas'); cv.width = 36; cv.height = 46
+    const c = cv.getContext('2d')!
+    c.beginPath(); c.moveTo(18, 44); c.bezierCurveTo(13, 34, 3, 27, 3, 17); c.arc(18, 17, 15, Math.PI, 0); c.bezierCurveTo(33, 27, 23, 34, 18, 44); c.closePath()
+    c.fillStyle = '#DC2626'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#FFFFFF'; c.stroke()
+    c.beginPath(); c.arc(18, 17, 5.5, 0, Math.PI * 2); c.fillStyle = '#FFFFFF'; c.fill()
+    return c.getImageData(0, 0, 36, 46)
+  })()
   for (const [name, img] of Object.entries(icons)) if (!m.hasImage(name)) m.addImage(name, img, { pixelRatio: 1 })
   // Rain chips: a stretchable rounded pill with a raindrop in its fixed left part.
   const chip = (fill: string) => {
@@ -367,6 +450,15 @@ function bbox(fc: any): [number, number, number, number] | null {
   return any ? [minX, minY, maxX, maxY] : null
 }
 
+function sensorHtml(q: any): string {
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+  const num = (v: unknown, unit: string) => (v == null || v === '' || v === 'null' ? '—' : `${Number(v).toFixed(1)}${unit}`)
+  const state = q.anomalous ? '<span class="tip-sev CRITICAL">MOVEMENT</span>' : q.failed ? '<span class="tip-sev">NOT REPORTING</span>' : q.live ? '<span class="tip-sev">LIVE</span>' : ''
+  return `<strong>Sensor ${esc(q.node)}</strong> ${state}`
+    + `<div class="tip-row">Tilt ${num(q.tilt, '°')} · Soil ${num(q.soil, '%')}</div>`
+    + `<div class="tip-row muted">${esc(q.seen || (q.live ? 'live hardware' : 'simulated node'))}</div>`
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
@@ -385,6 +477,8 @@ export default function Map3D(p: Props) {
   const raf = useRef(0)
   const orbitBearing = useRef(-20)
   const lastPulseRender = useRef(0)
+  const lastZonePulse = useRef(0)
+  const lastMarkerPulse = useRef(0)
   const lastInput = useRef(performance.now())
   const touring = useRef(false)
   const styleSeq = useRef(0)
@@ -408,7 +502,50 @@ export default function Map3D(p: Props) {
     m.setStyle(style, { diff: false })
   }
 
+  /** Start view: the area with the most HIGH/CRITICAL zones (zones within
+   *  ~60 km of each other count as one area), at about zoom 10. With nothing
+   *  at HIGH or above, all zones. */
+  // Ready = the basemap source and (with terrain) the DEM have tiles drawn for
+  // this view. Polled, because constant animation keeps 'idle' from firing.
+  const readyFired = useRef(false)
+  const readyTimer = useRef(0)
+  function watchReady() {
+    if (readyFired.current || (!props.current.onReady && !props.current.onFail)) return
+    window.clearInterval(readyTimer.current)
+    const t0 = performance.now()
+    readyTimer.current = window.setInterval(() => {
+      const m = map.current
+      if (!m || readyFired.current) { window.clearInterval(readyTimer.current); return }
+      const ids = Object.keys(m.getStyle()?.sources ?? {})
+      const base = ids.includes('openmaptiles') ? 'openmaptiles' : ids.includes('osm') ? 'osm' : null
+      const loaded = (id: string | null) => { try { return !id || m.isSourceLoaded(id) } catch { return false } }
+      if (base && loaded(base) && (!m.getTerrain() || loaded('dem'))) {
+        readyFired.current = true; window.clearInterval(readyTimer.current)
+        props.current.onReady?.()
+      } else if (performance.now() - t0 > 45000) {
+        readyFired.current = true; window.clearInterval(readyTimer.current)
+        props.current.onFail?.('the 3D map did not finish drawing in 45 s')
+      }
+    }, 400)
+  }
+
   function defaultView(animate: boolean) {
+    const m = map.current
+    if (!m) return
+    const hot = (props.current.zones?.features ?? []).filter((f: any) => ['HIGH', 'CRITICAL'].includes(f.properties.severity) && f.properties.centroid)
+    if (!hot.length) { showAll(animate); return }
+    const pt = (f: any) => ({ lat: f.properties.centroid[0], lon: f.properties.centroid[1], w: f.properties.severity === 'CRITICAL' ? 2 : 1 })
+    const km = (a: any, b: any) => Math.hypot((a.lat - b.lat) * 110.6, (a.lon - b.lon) * 111.3 * Math.cos(a.lat * Math.PI / 180))
+    const pts = hot.map(pt)
+    const groups = pts.map((a: any) => pts.filter((b: any) => km(a, b) <= 60))
+    const best = groups.reduce((x: any[], y: any[]) => (y.reduce((s, q) => s + q.w, 0) > x.reduce((s, q) => s + q.w, 0) ? y : x))
+    const center: [number, number] = [best.reduce((s: number, q: any) => s + q.lon, 0) / best.length, best.reduce((s: number, q: any) => s + q.lat, 0) / best.length]
+    const opts = { center, zoom: 10, pitch: PITCH, bearing: BEARING }
+    if (animate && !prefersReducedMotion()) m.easeTo({ ...opts, duration: 1600 }); else m.jumpTo(opts)
+  }
+
+  /** "Show all zones": fit every monitored zone, then tilt. */
+  function showAll(animate: boolean) {
     const m = map.current
     if (!m) return
     const b = bbox(props.current.zones) ?? (DEFAULT_BOUNDS as any)
@@ -416,19 +553,27 @@ export default function Map3D(p: Props) {
     // Fit flat first (pitch makes fitBounds back off too far), then tilt.
     const cam = m.cameraForBounds(bounds, { padding: { top: 40, bottom: 110, left: 40, right: 40 } })
     if (!cam) return
-    const opts = { center: cam.center, zoom: (cam.zoom ?? 6) + 0.35, pitch: 50, bearing: -15 }
+    const opts = { center: cam.center, zoom: (cam.zoom ?? 6) + 0.35, pitch: PITCH, bearing: BEARING }
     if (animate && !prefersReducedMotion()) m.easeTo({ ...opts, duration: 1600 }); else m.jumpTo(opts)
   }
 
   // ----------------------------------------------------------------- init
   useEffect(() => {
     if (!host.current || map.current) return
-    const m = new maplibregl.Map({
+    let m: MLMap
+    try {
+      m = new maplibregl.Map({
       container: host.current,
-      center: p.center ?? [91.5, 25.8], zoom: p.zoom ?? 6, pitch: p.orbit ? 62 : 50, bearing: -15,
+      center: p.center ?? [91.5, 25.8], zoom: p.zoom ?? 6, pitch: p.orbit ? (p.orbit.pitch ?? 62) : PITCH, bearing: BEARING,
       maxPitch: 75, maxBounds: p.orbit ? undefined : MAX_BOUNDS, attributionControl: false,
       style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': p.dark ? '#0F1A17' : '#EAE6DD' } }] },
-    })
+      })
+    } catch (e: any) {
+      // No WebGL (old GPU driver, remote desktop, locked-down PC).
+      props.current.onFail?.(`WebGL unavailable: ${e?.message ?? e}`)
+      return
+    }
+    m.on('webglcontextlost', () => props.current.onFail?.('the graphics context was lost'))
     const attrib = new maplibregl.AttributionControl({ compact: true })
     m.addControl(attrib, 'bottom-right')
     // Compact attribution opens expanded; start it folded to the (i) button.
@@ -438,26 +583,51 @@ export default function Map3D(p: Props) {
     m.addControl(ov as any)
     overlay.current = ov
     map.current = m
+    if (import.meta.env.DEV) (window as any).__bhMap = m       // for the browser test scripts
 
+    // Any image a style asks for and nobody has: a transparent pixel, not a broken icon.
+    m.on('styleimagemissing', (e: any) => { if (!m.hasImage(e.id)) m.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }) })
     m.on('style.load', () => {
       if (!m.getSource('zones')) return          // the placeholder style
       ready.current = true
       addIcons(m)
-      if (props.current.terrain !== false) m.setTerrain({ source: 'dem', exaggeration: EXAGGERATION })
+      if (props.current.terrain !== false) m.setTerrain({ source: 'dem', exaggeration: props.current.exaggeration ?? EXAGGERATION })
+      if (props.current.hillshade != null) m.setPaintProperty('hillshade', 'hillshade-exaggeration', props.current.hillshade)
       prevColors.current = {}
       syncAll()
+      watchReady()
       if (pendingFly.current) { flyNow(pendingFly.current); pendingFly.current = null }
-      else if (!fitted.current && !props.current.orbit && !props.current.center) { defaultView(false); fitted.current = true }
+      else if (!fitted.current && props.current.zones?.features?.length && !props.current.orbit && !props.current.center) { defaultView(false); fitted.current = true }
     })
-    m.on('click', 'zone-fill', (e) => {
-      const f = e.features?.[0]
-      if (f && select.current) select.current(Number(f.properties?.id))
-    })
-    m.on('click', 'reports-clusters', (e) => {
-      const f = e.features?.[0]
+    // One click handler, most specific first: a report cluster zooms in, a
+    // report dot opens its card, a sensor shows its readings, a zone opens
+    // its drawer. A small box around the pointer makes dots easy to hit.
+    const CLICKABLE = ['reports-clusters', 'reports', 'sensors', 'zone-circle', 'zone-fill']
+    const hit = (pt: maplibregl.Point) => {
+      if (!ready.current) return undefined
+      const layers = CLICKABLE.filter((id) => m.getLayer(id) && m.getLayoutProperty(id, 'visibility') !== 'none')
+      const box: [maplibregl.PointLike, maplibregl.PointLike] = [[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]]
+      const found = m.queryRenderedFeatures(box, { layers })
+      for (const id of CLICKABLE) { const f = found.find((q) => q.layer.id === id); if (f) return f }
+      return undefined
+    }
+    const sensorTip = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 14, className: 'zone-tip' })
+    m.on('click', (e) => {
+      const f = hit(e.point)
       if (!f) return
-      const src = m.getSource('reports') as any
-      src.getClusterExpansionZoom(f.properties!.cluster_id).then((z: number) => m.easeTo({ center: (f.geometry as any).coordinates, zoom: z }))
+      lastInput.current = performance.now()
+      const q = f.properties ?? {}
+      if (f.layer.id === 'reports-clusters') {
+        ;(m.getSource('reports') as any).getClusterExpansionZoom(q.cluster_id).then((z: number) =>
+          m.easeTo({ center: (f.geometry as any).coordinates, zoom: z + 0.5, pitch: PITCH, bearing: BEARING }))
+      } else if (f.layer.id === 'reports') {
+        props.current.onSelectReport?.(Number(q.id))
+      } else if (f.layer.id === 'sensors') {
+        popup.remove()
+        sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(sensorHtml(q)).addTo(m)
+      } else if (select.current) {
+        select.current(Number(q.id))
+      }
     })
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'zone-tip' })
     const setHover = (id: number | null) => {
@@ -468,18 +638,14 @@ export default function Map3D(p: Props) {
     m.on('mousemove', 'zone-fill', (e) => {
       const q = e.features?.[0]?.properties
       if (!q) return
-      m.getCanvas().style.cursor = 'pointer'
       setHover(Number(q.id))
       const rain = q.rain24 != null ? `${Number(q.rain24).toFixed(0)} mm rain · 24 h` : ''
       popup.setLngLat(e.lngLat).setHTML(
         `<strong>${q.name}</strong><div class="tip-row"><span class="tip-sev ${q.severity}">${q.severity}</span>${q.risk_score != null ? ` risk ${Number(q.risk_score).toFixed(0)}/100` : ''}${q.confidence != null ? ` · ${Math.round(Number(q.confidence) * 100)}% sure` : ''}</div>${rain ? `<div class="tip-row muted">${rain}</div>` : ''}`
       ).addTo(m)
     })
-    m.on('mouseleave', 'zone-fill', () => { m.getCanvas().style.cursor = ''; setHover(null); popup.remove() })
-    for (const id of ['reports', 'reports-clusters']) {
-      m.on('mouseenter', id, () => { m.getCanvas().style.cursor = 'pointer' })
-      m.on('mouseleave', id, () => { m.getCanvas().style.cursor = '' })
-    }
+    m.on('mouseleave', 'zone-fill', () => { setHover(null); popup.remove() })
+    m.on('mousemove', (e) => { m.getCanvas().style.cursor = hit(e.point) ? 'pointer' : '' })
 
     const touched = () => { lastInput.current = performance.now() }
     const el = host.current
@@ -492,6 +658,7 @@ export default function Map3D(p: Props) {
     return () => {
       cancelAnimationFrame(raf.current)
       cancelAnimationFrame(radarAnim.current)
+      window.clearInterval(readyTimer.current)
       ro.disconnect()
       for (const ev of ['pointerdown', 'wheel', 'keydown', 'touchstart'] as const) el.removeEventListener(ev, touched)
       m.remove()
@@ -534,7 +701,11 @@ export default function Map3D(p: Props) {
     const fc = zonesWithColor()
     ;(m.getSource('zones') as any)?.setData(fc)
     ;(m.getSource('zone-labels') as any)?.setData({ type: 'FeatureCollection', features: fc.features.filter((f: any) => f.properties.centroid)
-      .map((f: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [f.properties.centroid[1], f.properties.centroid[0]] }, properties: { name: f.properties.name } })) })
+      .map((f: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [f.properties.centroid[1], f.properties.centroid[0]] },
+        properties: { id: f.properties.id, name: f.properties.name, severity: f.properties.severity, color: f.properties.color,
+                      r: ({ LOW: 10, MODERATE: 12, HIGH: 15, CRITICAL: 18 } as Record<string, number>)[f.properties.severity] ?? 10 } })) })
+    // First time zones are known: open on the hotspot.
+    if (!fitted.current && fc.features.length && !pendingFly.current && !props.current.orbit && !props.current.center) { fitted.current = true; defaultView(false) }
     const b = bbox(fc)
     ;(m.getSource('dim') as any)?.setData(b ? { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [
       [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]],
@@ -562,7 +733,8 @@ export default function Map3D(p: Props) {
     if (!m || !ready.current) return
     ;(m.getSource('villages') as any)?.setData(props.current.villages ?? EMPTY)
     ;(m.getSource('sensors') as any)?.setData({ type: 'FeatureCollection', features: (props.current.pins ?? []).map((s) => ({
-      type: 'Feature', properties: { live: !!s.live, anomalous: !!s.anomalous, label: s.label }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) })
+      type: 'Feature', properties: { live: !!s.live, anomalous: !!s.anomalous, failed: !!s.failed, label: s.label, node: s.node ?? '', tilt: s.tilt ?? null, soil: s.soil ?? null, seen: s.seen ?? '' },
+      geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) })
     ;(m.getSource('reports') as any)?.setData({ type: 'FeatureCollection', features: (props.current.reports ?? []).map((r) => ({
       type: 'Feature', properties: { id: r.id, label: r.label }, geometry: { type: 'Point', coordinates: [r.lon, r.lat] } })) })
   }
@@ -582,7 +754,7 @@ export default function Map3D(p: Props) {
     const pad = 0.3
     const box: [number, number, number, number] = [Math.min(...lons) - pad, Math.min(...lats) - pad, Math.max(...lons) + pad, Math.max(...lats) + pad]
     chipsSrc?.setData({ type: 'FeatureCollection', features: pts.filter((q) => (q.mm24 ?? 0) >= 1).map((q) => ({
-      type: 'Feature', properties: { label: `${(q.mm24 ?? 0).toFixed(0)} mm / 24 h`, chip: chipFor(q.mm24 ?? 0) }, geometry: { type: 'Point', coordinates: [q.lon, q.lat] } })) })
+      type: 'Feature', properties: { label: `${(q.mm24 ?? 0).toFixed(0)} mm / 24 h`, chip: chipFor(q.mm24 ?? 0), off: q.chipOffset ?? [0, 0] }, geometry: { type: 'Point', coordinates: [q.lon, q.lat] } })) })
     const key = (q: RainPoint) => `${q.lat.toFixed(4)},${q.lon.toFixed(4)}`
     const from = pts.map((q) => radarPrev.current.get(key(q)) ?? 0)
     radarPrev.current = new Map(pts.map((q) => [key(q), q.mm]))
@@ -603,7 +775,7 @@ export default function Map3D(p: Props) {
     if (!m || !ready.current) return
     const L = { zones: true, reports: true, sensors: true, rain: true, roads: true, ...(props.current.layers ?? {}) }
     const vis = (ids: string[], on: boolean) => ids.forEach((id) => { try { m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none') } catch { /* missing */ } })
-    vis(['zone-fill', 'zone-glow-high', 'zone-glow-critical', 'zone-line', 'zone-labels'], L.zones)
+    vis(['zone-fill', 'zone-glow-high', 'zone-glow-critical', 'zone-line', 'zone-labels', 'zone-circle', 'zone-pulse-HIGH', 'zone-pulse-CRITICAL', 'zone-circle-label'], L.zones)
     vis(['reports', 'reports-clusters', 'reports-count'], L.reports)
     vis(['sensors'], L.sensors)
     vis(['rain-radar', 'rain-chips'], L.rain)
@@ -660,9 +832,17 @@ export default function Map3D(p: Props) {
 
   function syncDeck(now = performance.now()) { overlay.current?.setProps({ layers: deckLayers(now) }) }
 
+  function syncMarker() {
+    const m = map.current
+    if (!m || !ready.current) return
+    const mk = props.current.marker
+    ;(m.getSource('marker') as any)?.setData(mk ? { type: 'FeatureCollection', features: [
+      { type: 'Feature', properties: { label: mk.label }, geometry: { type: 'Point', coordinates: [mk.lon, mk.lat] } }] } : EMPTY)
+  }
+
   function syncAll() {
     if (!map.current || !ready.current) return
-    syncZones(); syncRoads(); syncPoints(); syncRain(false); syncVisibility(); syncDeck()
+    syncZones(); syncRoads(); syncPoints(); syncRain(false); syncVisibility(); syncMarker(); syncDeck()
   }
 
   // Animation loop: CRITICAL glow pulse, ripples, orbit, idle rotation.
@@ -677,6 +857,24 @@ export default function Map3D(p: Props) {
       const hasPulse = pulses.some((q) => now - q.at < 20000) || (!!orbit && rainParticles > 0.2)
       if (!reduced && ready.current) {
         try { m.setPaintProperty('zone-glow-critical', 'line-opacity', 0.3 + 0.35 * (0.5 + 0.5 * Math.sin(now / 600))) } catch { /* not ready */ }
+        if (props.current.marker && now - lastMarkerPulse.current > 40) {
+          lastMarkerPulse.current = now
+          const k = (now % 1600) / 1600
+          try {
+            m.setPaintProperty('marker-ring', 'circle-radius', 10 + k * 26)
+            m.setPaintProperty('marker-ring', 'circle-stroke-opacity', 0.9 * (1 - k))
+          } catch { /* not ready */ }
+        }
+        if (m.getZoom() < 9.4 && now - lastZonePulse.current > 40) {
+          lastZonePulse.current = now
+          const k = (now % 1800) / 1800, fade = 0.75 * (1 - k) * Math.max(0, Math.min(1, (9.3 - m.getZoom()) / 0.7))
+          for (const sev of ['HIGH', 'CRITICAL'] as const) {
+            try {
+              m.setPaintProperty(`zone-pulse-${sev}`, 'circle-radius', PULSE_R[sev] + 2 + k * 14)
+              m.setPaintProperty(`zone-pulse-${sev}`, 'circle-stroke-opacity', fade)
+            } catch { /* not ready */ }
+          }
+        }
         if (orbit && orbitActive) { orbitBearing.current = (orbitBearing.current + 0.05) % 360; m.setBearing(orbitBearing.current) }
         else if (!orbit && idleRotate && !touring.current && now - lastInput.current > IDLE_MS && !m.isMoving()) m.setBearing((m.getBearing() + 0.03) % 360)
       }
@@ -691,7 +889,8 @@ export default function Map3D(p: Props) {
   useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports])      // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncVisibility(); syncDeck() }, [p.layers?.zones, p.layers?.reports, p.layers?.sensors, p.layers?.rain, p.layers?.roads])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (ready.current) syncDeck() }, [p.pulses, p.rainParticles])  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { syncRain() }, [p.rain])                                         // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { syncRain() }, [p.rain])
+  useEffect(() => { syncMarker() }, [p.marker?.lat, p.marker?.lon, p.marker?.label])  // eslint-disable-line react-hooks/exhaustive-deps                                         // eslint-disable-line react-hooks/exhaustive-deps
 
   const firstDark = useRef(true)
   useEffect(() => { if (firstDark.current) { firstDark.current = false; return } loadStyle() }, [p.dark])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -700,13 +899,13 @@ export default function Map3D(p: Props) {
     const m = map.current
     if (!m || !ready.current) return
     const sat = p.basemap === 'satellite'
-    try { m.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none'); m.setPaintProperty('hillshade', 'hillshade-exaggeration', sat ? 0.12 : 0.25) } catch { /* not ready */ }
+    try { m.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none'); m.setPaintProperty('hillshade', 'hillshade-exaggeration', props.current.hillshade ?? (sat ? 0.12 : 0.45)) } catch { /* not ready */ }
   }, [p.basemap])
 
   useEffect(() => {
     const m = map.current
     if (!m || !ready.current) return
-    m.setTerrain(p.terrain === false ? null : { source: 'dem', exaggeration: EXAGGERATION })
+    m.setTerrain(p.terrain === false ? null : { source: 'dem', exaggeration: p.exaggeration ?? EXAGGERATION })
   }, [p.terrain])
 
   useEffect(() => {
@@ -720,16 +919,16 @@ export default function Map3D(p: Props) {
 
   function flyNow(f: NonNullable<Props['flyTo']>) {
     lastInput.current = performance.now()
-    map.current?.flyTo({ center: [f.lon, f.lat], zoom: f.zoom ?? 11, pitch: 58, bearing: -20, duration: prefersReducedMotion() ? 0 : 1800, essential: true })
+    map.current?.flyTo({ center: [f.lon, f.lat], zoom: f.zoom ?? 11, pitch: PITCH, bearing: BEARING, duration: prefersReducedMotion() ? 0 : 1800, essential: true })
   }
 
   const firstReset = useRef(true)
-  useEffect(() => { if (firstReset.current) { firstReset.current = false; return } lastInput.current = performance.now(); defaultView(true) }, [p.resetSignal])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (firstReset.current) { firstReset.current = false; return } lastInput.current = performance.now(); showAll(true) }, [p.resetSignal])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const m = map.current
     if (!m || !p.orbit) return
-    m.jumpTo({ center: [p.orbit.lon, p.orbit.lat], zoom: p.orbit.zoom ?? 11.8, pitch: 64, bearing: orbitBearing.current })
+    m.jumpTo({ center: [p.orbit.lon, p.orbit.lat], zoom: p.orbit.zoom ?? 11.8, pitch: p.orbit.pitch ?? 64, bearing: orbitBearing.current })
   }, [p.orbit?.lat, p.orbit?.lon])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Warm the tile cache: visit each stop, wait for its tiles, come home.
@@ -743,7 +942,7 @@ export default function Map3D(p: Props) {
     ;(async () => {
       for (const s of tour.stops) {
         if (cancelled) return
-        m.flyTo({ center: [s.lon, s.lat], zoom: s.zoom ?? 11, pitch: 55, bearing: -15, duration: 2200, essential: true })
+        m.flyTo({ center: [s.lon, s.lat], zoom: s.zoom ?? 11, pitch: PITCH, bearing: BEARING, duration: 2200, essential: true })
         await new Promise((r) => window.setTimeout(r, 2300))
         await settle()
       }

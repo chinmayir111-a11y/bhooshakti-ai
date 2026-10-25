@@ -742,3 +742,55 @@ table.grid tr:hover td { background: var(--panel); }
 .replay .map-box { background: var(--surface-2); }
 .legend-rain .ramp { height: 10px; border-radius: 5px; margin: 6px 0 2px; background: linear-gradient(90deg, rgba(125,211,252,0) 0%, #7DD3FC 4%, #3B82F6 17%, #8B5CF6 50%, #EC4899 100%); }
 .legend-rain .ramp-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+
+/* ---- report cards: outside-zone reports are grey, not a danger card; the
+   one opened from the map is outlined; buttons show a spinner while working */
+.esc-item.outside { background: var(--surface-2); }
+.esc-item.outside strong { color: var(--text-muted); }
+.esc-item.open { box-shadow: inset 3px 0 0 var(--brand); }
+.spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: 0 0 auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.maplibregl-popup.zone-tip .maplibregl-popup-close-button { color: var(--text-muted); font-size: 16px; padding: 0 6px; }
+
+/* ---- 3D map loads behind the flat map and fades in once drawn */
+.map3d-layer { position: absolute; inset: 0; z-index: 450; opacity: 0; pointer-events: none; transition: opacity .8s ease; }
+.map3d-layer.ready { opacity: 1; pointer-events: auto; }
+.map-loading-chip {
+  position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 820;
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line-strong); color: var(--text-muted); font-size: 12px; box-shadow: var(--shadow-md);
+}
+.map-loading-chip .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+@media (max-width: 900px) { .map-wrap { height: 56vh; min-height: 340px; } }
+
+/* ---- control room on tablets and phones (900px and below). The map keeps its
+   overlays — legend bottom-left, rain bar along the bottom, buttons top-right —
+   as on desktop; earlier rules moved them out of the map, where the fixed map
+   height clipped them. The alert list scrolls in its own box instead of
+   stretching the page to thousands of pixels. */
+@media (max-width: 900px) {
+  .map-wrap { height: 62vh; min-height: 360px; max-height: 720px; overflow: hidden; }
+  .map-wrap .map-host { height: 100%; min-height: 0; }
+  .map-wrap .legend { position: absolute; left: 8px; bottom: 64px; margin: 0; max-width: calc(100% - 16px); }
+  .map-wrap .legend.open .legend-body { max-height: 38vh; overflow-y: auto; }
+  .map-wrap .rain-slider { position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0; }
+  .map-ctrl { top: 8px; right: 8px; gap: 4px; flex-wrap: nowrap; max-width: none; }
+  .map-ctrl .seg button { min-height: 36px; min-width: 36px; }
+  .map-ctrl .iconbtn { min-height: 36px; }
+  .map-wrap .maplibregl-ctrl-top-right { top: 48px; }
+  .map-loading-chip { bottom: 112px; }
+  .rail-scroll { max-height: 70vh; overflow-y: auto; }
+  .rail-tabs { position: sticky; top: 0; z-index: 2; background: var(--surface); }
+  .ticker { padding: 6px 12px; }
+  .ticker-items .tiny { white-space: normal; }
+}
+@media (max-width: 600px) {
+  /* Icon-only Layers / Show all zones so the button row fits a 360px phone. */
+  .map-ctrl .iconbtn .lbl { display: none; }
+  .map-ctrl .iconbtn { padding: 0 9px; }
+  .map-ctrl .seg button { padding: 0 9px; font-size: 12px; }
+  .rain-slider { gap: 8px; padding: 6px 8px; }
+  .rain-slider .label, .rain-slider .provbadge { display: none; }
+  .rain-slider .t { font-size: 10.5px; }
+  .ticker-item { white-space: normal; }
+}

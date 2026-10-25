@@ -73,8 +73,10 @@ where a number comes from. Open the **Demo** menu (right end of the status row) 
 
 ## 4:00 — Does the model actually work? (`/replay`)
 
-10. Read the summary card aloud: **"Warned before 16 of 34 held-out real landslides, median 63 h
-    ahead; 18 missed; 3 of 6 same-season non-event weeks false-alarmed, 2 of 34 dry weeks."**
+10. Read the summary card aloud: **"Warned before 55 of 100 real landslides it had never seen,
+    across two separate years — about two and a half days ahead."** Then the detail: 2016+ with the
+    shipped model, 16 of 34 (median 63 h); 2015 with a model trained only on 2007–2014, 39 of 66
+    (median 62 h). False alarms in dry-season weeks: 2 of 100.
 11. Pick **★ 2024-05-28 Aizawl** — play at 4×. Rain columns grow in 3D, the risk line crosses
     HIGH, banner: *Alert would have fired on 28 May 02:30 — 3.5 hours before the landslide*;
     then the red shockwave at the event with its source link. Switch to **Dry week**: risk stays low.
@@ -91,11 +93,20 @@ where a number comes from. Open the **Demo** menu (right end of the status row) 
 
 ## Likely judge questions
 
-**"Isn't 16 of 34 poor?"** It is rainfall-only skill on a news-derived catalogue with 1–50 km
+**"Isn't 55 of 100 poor?"** It is rainfall-only skill on a news-derived catalogue with 1–50 km
 location error and a 25 km reanalysis, with the time of day usually unknown (we count only
 warnings that beat the whole day). It is honest and reproducible — `make backtest` — and every
 component that would raise it (real sensors, terrain data, SMS reports as corroboration) is
-already wired in. We would rather show 16/34 than a 97% accuracy on synthetic data.
+already wired in. We would rather show 55/100 than a 97% accuracy on synthetic data. We tested
+the obvious fixes: richer rain features and more training years catch the same number (more years
+only cut false alarms), and a lower threshold buys catches with many more false alarms. The limit
+is 25 km rain data, which cannot see a cloudburst on one hillside — that is what citizen reports
+are for.
+
+**"Why AI and not a simple rainfall threshold?"** On this rain data a 72-hour rainfall rule does
+about as well — we measured it. The value is the system around the forecast: rain, citizen
+reports, sensors and officers combined, explained, and delivered to every phone. The forecast
+layer can take better rain data (IMD radar, NASA GPM) without changing anything else.
 
 **"Why did Noney miss?"** ERA5 shows the rain, but at 25 km resolution the peak at the railway
 cut was under the HIGH threshold; the slide was also on a freshly cut slope, which rainfall

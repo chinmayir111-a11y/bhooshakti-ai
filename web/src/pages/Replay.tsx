@@ -90,7 +90,9 @@ function ReplayPage() {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<typeof SPEEDS[number]>(4)
   const [show3d, setShow3d] = useLocalFlag('bhooshakti.replay3d', true)
-  const [satellite, setSatellite] = useLocalFlag('bhooshakti.replay.satellite', true)
+  // Satellite by default: real imagery suits a real event. (New key, so an
+  // older "Map" choice saved in the browser does not override the default.)
+  const [satellite, setSatellite] = useLocalFlag('bhooshakti.replay.sat', true)
   const [custom, setCustom] = useState({ pincode: '734223', lat: '', lon: '', date: '2024-05-28', time: '', label: '' })
   const [customBusy, setCustomBusy] = useState(false)
   const [customError, setCustomError] = useState('')
@@ -162,7 +164,10 @@ function ReplayPage() {
   const firedReached = !!(tl && h && tl.verdict.first_alert && h.ts >= tl.verdict.first_alert)
   if (refReached && tl && !shock.current.length) shock.current = [{ lat: tl.event.lat, lon: tl.event.lon, at: performance.now(), big: true }]
 
-  const rainPoints: RainPoint[] = tl && h ? [{ lon: tl.event.lon, lat: tl.event.lat, mm: h.rain_mm, mm24: h.rainfall_24h }] : []
+  // The 24 h chip sits beside the landslide pin, not on top of it.
+  const rainPoints: RainPoint[] = tl && h ? [{ lon: tl.event.lon, lat: tl.event.lat, mm: h.rain_mm, mm24: h.rainfall_24h, chipOffset: [7.4, -1.9] }] : []
+  const marker = tl ? { lat: tl.event.lat, lon: tl.event.lon,
+    label: `Landslide · ${new Date(`${tl.event.date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}` } : null
 
   // The moment the line crosses HIGH while playing: one animated toast.
   const firedShown = useRef(false)
@@ -275,8 +280,8 @@ function ReplayPage() {
                     {show3d ? (
                       <div className="map-box">
                         <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12.2 }} orbitActive={playing} rain={rainPoints} rainParticles={playing ? h.rain_mm : 0} pulses={refReached ? shock.current : []}
-                                 terrain center={[tl.event.lon, tl.event.lat]} zoom={12.2} dark={dark}
+                          <Map3D orbit={{ lat: tl.event.lat, lon: tl.event.lon, zoom: 12, pitch: 55 }} orbitActive={playing} marker={marker} exaggeration={1.1} hillshade={0.15} rain={rainPoints} rainParticles={playing ? h.rain_mm : 0} pulses={refReached ? shock.current : []}
+                                 terrain center={[tl.event.lon, tl.event.lat]} zoom={12} dark={dark}
                                  basemap={satellite ? 'satellite' : 'map'} />
                         </Suspense>
                         <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5 }} className="row">
@@ -323,7 +328,23 @@ function ReplayPage() {
             <div className="card">
               <div className="card-head"><h3>The honest score on every held-out landslide</h3></div>
               <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, alignItems: 'start' }}>
-                <div style={{ gridColumn: '1 / -1', fontSize: 16, fontWeight: 700 }}>{summary.summary.headline}</div>
+                {summary.earlier?.length > 0 && (() => {
+                  // Every tested year together: each year scored by a model trained only on the years before it.
+                  const all = [summary, ...summary.earlier]
+                  const warned = all.reduce((n: number, r: any) => n + r.summary.warned_before, 0)
+                  const events = all.reduce((n: number, r: any) => n + r.summary.events, 0)
+                  return (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 18, fontWeight: 800 }}>
+                      Warned before {warned} of {events} real landslides it had never seen, across {all.length} separate years.
+                    </div>
+                  )
+                })()}
+                <div style={{ gridColumn: '1 / -1', fontSize: 16, fontWeight: 700 }}>{summary.test_year}+ (shipped model): {summary.summary.headline}</div>
+                {(summary.earlier ?? []).map((r: any) => (
+                  <div key={r.test_year} style={{ gridColumn: '1 / -1', fontSize: 14.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {r.test_year} (model trained on {r.trained_on.replace('NASA GLC events', 'landslides')}): {r.summary.headline}
+                  </div>
+                ))}
                 <Stat n={summary.summary.warned_before} of={summary.summary.events} label="warned before" tint="var(--sev-low-ink)" />
                 <Stat n={summary.summary.warned_same_day} of={summary.summary.events} label="same day only" tint="var(--sev-high-ink)" />
                 <Stat n={summary.summary.missed} of={summary.summary.events} label="missed" tint="var(--sev-critical-ink)" />

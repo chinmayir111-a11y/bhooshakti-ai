@@ -108,6 +108,26 @@ def test_twilio_ls_creates_a_report_and_replies_in_twiml(client, tx_db, no_siren
     assert row["zone_id"] is not None
 
 
+def test_gps_coordinates_are_read_before_punctuation_is_stripped():
+    c = parse("LS 26.95300,88.32100 big crack")
+    assert (c.intent, c.lat, c.lon, c.pincode, c.detail) == ("report", 26.953, 88.321, None, "big crack")
+    assert parse("JOIN 26.95,88.32 HI").language == "hi"
+    # Not a place in India: treated as words, never as a location.
+    assert parse("LS 1.5,2.5 x").lat is None
+
+
+@requires_db
+def test_offline_gps_sms_lands_in_the_right_zone(client, tx_db, no_siren):
+    """The citizen app with no internet sends GPS, not a pincode."""
+    r = client.post("/api/inbound/sms", json={"sender": "+919855555555", "message": "LS 26.95300,88.32100 Landslide"})
+    assert "received" in r.json()["reply"] and "your location" in r.json()["reply"]
+    row = tx_db.execute(text("""
+        SELECT r.channel, z.code FROM citizen_reports r JOIN zones z ON z.id = r.zone_id
+        WHERE r.phone = '+919855555555'
+    """)).mappings().one()
+    assert dict(row) == {"channel": "sms", "code": "DJ-04"}
+
+
 @requires_db
 def test_msg91_safe_replies_with_current_risk_as_json(client):
     r = client.post("/api/inbound/sms", json={"sender": "919822222222", "content": "SAFE 734101"})

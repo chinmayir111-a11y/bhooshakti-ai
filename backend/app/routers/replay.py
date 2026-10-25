@@ -21,8 +21,9 @@ def summary() -> dict:
     r = replay.results()
     if r is None:
         raise HTTPException(404, "No backtest yet — run scripts/backtest.py")
-    return {k: r[k] for k in ("generated_at", "model_version", "threshold", "test_year",
-                              "definitions", "summary", "demo_events", "data")}
+    return {**{k: r[k] for k in ("generated_at", "model_version", "threshold", "test_year",
+                                 "definitions", "summary", "demo_events", "data")},
+            "earlier": replay.earlier_results()}
 
 
 @router.get("/events", summary="Real events that can be replayed (held-out first)")

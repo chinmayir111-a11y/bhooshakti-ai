@@ -36,7 +36,7 @@ from .routers import (
     weather,
     zones,
 )
-from .services import escalation, risk_service, spatial
+from .services import escalation, risk_service, spatial, weather_job
 from .ws import manager
 
 logging.basicConfig(
@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
 
     if settings.escalation_enabled:
         escalation.scheduler.start()
+    weather_job.scheduler.start()
 
     try:
         with session_scope() as db:
@@ -98,6 +99,7 @@ async def lifespan(app: FastAPI):
     yield
 
     escalation.scheduler.stop()
+    weather_job.scheduler.stop()
     ingest.stop()
     log.info("shutdown complete")
 
@@ -197,6 +199,10 @@ def health() -> dict:
         "weather": {
             "provider": settings.weather_provider,
             "using_real_weather": settings.use_real_weather,
+            "refresh_minutes": settings.weather_refresh_minutes,
+            "refresh_runs": weather_job.scheduler.runs,
+            "last_refresh": weather_job.scheduler.last_run,
+            "last_error": weather_job.scheduler.last_error,
         },
         "notify_channels": settings.channel_list,
         "demo_data": True,

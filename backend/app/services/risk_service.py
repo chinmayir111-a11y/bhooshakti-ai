@@ -12,6 +12,7 @@ Pipeline per zone:
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -27,7 +28,7 @@ from ..ws import (
     manager,
 )
 from ml.features import FeatureRow, build_frame
-from ml.fusion import FusionInput, fuse
+from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse
 from ml.rainfall_trend import forecast_24h, seasonal_normal_72h, window_totals
 from . import spatial
 
@@ -242,6 +243,23 @@ def _latest_verification(db: Session, zone_id: int) -> dict[str, Any]:
     return {"verdict": row["verdict"], "age_hours": age, "officer": row["officer_name"] or ""}
 
 
+CRITICAL_AT = next(t for t, label in SEVERITY_BANDS if label == "CRITICAL")
+
+
+def _confirmed_report(db: Session, zone_id: int) -> dict[str, Any] | None:
+    """A citizen report an officer confirmed recently (same window a field
+    check counts for). Its WARNING went out as CRITICAL, so the zone must
+    read CRITICAL too, or the map and the alert disagree."""
+    since = datetime.now(timezone.utc) - timedelta(hours=VERIFICATION_FRESH_HOURS * 4)
+    row = db.execute(text("""
+        SELECT id, moderated_by FROM citizen_reports
+        WHERE zone_id = :z AND status = 'APPROVED' AND warning_alert_id IS NOT NULL
+          AND moderated_at >= :since
+        ORDER BY moderated_at DESC, id DESC LIMIT 1
+    """), {"z": zone_id, "since": since}).mappings().first()
+    return dict(row) if row else None
+
+
 def _latest_severity(db: Session, zone_id: int) -> Severity | None:
     row = db.execute(text("""
         SELECT severity::text FROM zone_risk
@@ -362,6 +380,15 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
         tilt_change_deg=sensors["tilt_change_deg"],
         tilt_node=sensors["tilt_node"],
     ))
+
+    confirmed = _confirmed_report(db, zone.id)
+    if confirmed and result.risk_score < CRITICAL_AT:
+        who = f" by {confirmed['moderated_by']}" if confirmed["moderated_by"] else ""
+        result = dataclasses.replace(
+            result, risk_score=CRITICAL_AT, severity="CRITICAL",
+            contributing_factors=[{"key": "report_confirmed", "weight": 1.0, "direction": "increases",
+                                   "text": f"Landslide report #{confirmed['id']} confirmed{who} — held at CRITICAL"}]
+            + list(result.contributing_factors))
 
     previous = _latest_severity(db, zone.id)
     severity = Severity(result.severity)

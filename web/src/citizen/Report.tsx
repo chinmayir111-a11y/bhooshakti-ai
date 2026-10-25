@@ -13,6 +13,7 @@ import { citizenQueue } from '../offline/citizenQueue'
 import { makeUuid } from '../offline/queue'
 import { rememberRisk } from './rain'
 import Shell, { Speak } from './Shell'
+import SmsButton from './SmsButton'
 
 type Pos = { lat: number; lon: number; accuracy: number }
 const ISSUES = ['landslide', 'road_blockage', 'crack', 'tilted_trees', 'muddy_water'] as const
@@ -125,11 +126,6 @@ export default function CitizenReport() {
   function stopRec() { if (recorder.current?.state === 'recording') recorder.current.stop() }
 
   // `LS <pincode> <what you see>` — the keyword format the SMS gateway parses.
-  // The nearest pincode comes from the geo-check; with no network the person
-  // types it themselves (the help screen shows the format).
-  const smsBody = encodeURIComponent(`LS ${geo?.nearest_pincode ?? ''} ${t(`issue_${issue}`)} ${note}`.replace(/\s+/g, ' ').trim())
-  const [smsNumber, setSmsNumber] = useState('')
-  useEffect(() => { api.smsNumber().then((r) => setSmsNumber(r.number)).catch(() => {}) }, [])
 
   async function send() {
     if (!pos) { setError(t('report_location_failed')); return }
@@ -230,10 +226,12 @@ export default function CitizenReport() {
         {busy ? t('report_sending') : <><Picto size={28} style={{ verticalAlign: 'middle', marginRight: 8 }} />{t('report_send')}</>}
       </button>
 
-      <a className="cz-linkbtn" style={{ marginTop: 12 }}
-         href={`sms:${smsNumber || ''}${/iPhone|iPad/.test(navigator.userAgent) ? '&' : '?'}body=${smsBody}`}>
-        <IconMail />{t('report_send_sms')}
-      </a>
+      {/* Pincode when we know it; otherwise the GPS fix (works with no internet). */}
+      <div style={{ marginTop: 12 }}>
+        <SmsButton intent="report" className="cz-linkbtn sms" label={t('report_send_sms')} icon={<IconMail />}
+                   where={geo?.nearest_pincode || (pos ? `${pos.lat.toFixed(5)},${pos.lon.toFixed(5)}` : null)}
+                   extra={`${t(`issue_${issue}`)} ${note}`} />
+      </div>
       <p className="cz-notice" style={{ marginTop: 6 }}>{t('report_sms_hint')}</p>
       <p className="cz-notice">{t('emergency_line')}</p>
     </Shell>

@@ -96,6 +96,8 @@ function findVoice(lang: Lang): { voice: SpeechSynthesisVoice; exact: boolean } 
 
 export type SpeakResult = 'ok' | 'fallback' | 'none'
 
+let speaking: SpeechSynthesisUtterance | null = null
+
 /** Speak `text` in `lang`. 'fallback' means a related language's voice was
  *  used; 'none' means the device has no usable voice (the caller should say so). */
 export function speak(text: string, lang: Lang): SpeakResult {
@@ -106,8 +108,21 @@ export function speak(text: string, lang: Lang): SpeakResult {
   u.lang = found?.voice.lang ?? tables._meta.voice_locale[lang] ?? 'en-IN'
   if (found) u.voice = found.voice
   u.rate = 0.9
-  window.speechSynthesis.cancel()
-  window.speechSynthesis.speak(u)
+  // Chrome bugs worked around here: an utterance that gets garbage-collected
+  // goes silent, a speak() straight after cancel() is sometimes dropped, and a
+  // tab can stay "paused" after speech was cut off by a page change. So keep a
+  // reference, speak a moment after cancelling, and retry once if it never starts.
+  const s = window.speechSynthesis
+  speaking = u
+  let started = false
+  u.onstart = () => { started = true }
+  if (import.meta.env.DEV) u.onerror = (e) => console.warn('speech error:', e.error)
+  s.cancel(); s.resume()
+  window.setTimeout(() => {
+    if (speaking !== u) return
+    s.speak(u)
+    window.setTimeout(() => { if (speaking === u && !started) { s.cancel(); s.resume(); s.speak(u) } }, 1200)
+  }, 60)
   return found && !found.exact ? 'fallback' : 'ok'
 }
 

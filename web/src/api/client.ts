@@ -124,9 +124,32 @@ export interface StoredUser {
   username: string; role: Role; full_name: string; designation: string
 }
 
+/** The stored token, or null when it is missing or past its expiry (a
+ *  12-hour token left over from yesterday would otherwise look signed in
+ *  while every action comes back 401). */
 export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
+  let token: string | null = null
+  try { token = localStorage.getItem(TOKEN_KEY) } catch { return null }
+  if (token && tokenExpired(token)) { clearSession(); return null }
+  return token
 }
+function tokenExpired(token: string): boolean {
+  try {
+    const exp = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp
+    return typeof exp === 'number' && exp * 1000 <= Date.now()
+  } catch { return false }
+}
+/** A random id kept on this device, so the server can tell two people apart
+ *  when neither gives a phone number (SOS groups, the hourly report limit).
+ *  Not linked to the person; clearing site data makes a new one. */
+export function deviceId(): string {
+  try {
+    let id = localStorage.getItem('bhooshakti.device')
+    if (!id) { id = crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; localStorage.setItem('bhooshakti.device', id) }
+    return id
+  } catch { return '' }
+}
+
 export function getUser(): StoredUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
@@ -154,6 +177,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  // Signed in but refused: the session ended server-side. Say so and go to
+  // sign-in rather than leaving buttons that silently do nothing.
+  if (res.status === 401 && token) {
+    clearSession()
+    if (!location.pathname.startsWith('/login')) location.assign(`/login?expired=1&next=${encodeURIComponent(location.pathname + location.search)}`)
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -192,8 +221,8 @@ export const api = {
 
   reports: (status?: string) =>
     request<CitizenReport[]>(`/reports${status ? `?status=${status}` : ''}`),
-  escalations: () => request<CitizenReport[]>('/reports/escalations'),
-  createReport: (body: Record<string, unknown>) => post('/reports', body),
+  escalations: (includeChecking = false) => request<CitizenReport[]>(`/reports/escalations${includeChecking ? '?include_checking=true' : ''}`),
+  createReport: (body: Record<string, unknown>) => post('/reports', { device_id: deviceId(), ...body }),
   moderate: (id: number, decision: string, notes: string) => post(`/reports/${id}/moderate`, { decision, notes }),
   acknowledgeReport: (id: number) => post(`/reports/${id}/acknowledge`),
   confirmReport: (id: number, notes = '') => post(`/reports/${id}/confirm`, { notes }),

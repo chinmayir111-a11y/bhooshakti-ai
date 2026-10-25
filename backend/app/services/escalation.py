@@ -9,6 +9,8 @@ ladder that only a human acknowledgement stops:
     T+20 min, score>=60 unacknowledged -> automatic ADVISORY to everyone
                         registered in the zone
     score >= 85         ADVISORY immediately, at any time, still awaiting a human
+    2+ SOS from different senders within 1.5 km / 60 min -> ADVISORY immediately
+    every officer told, a full step gone, still nobody -> ADVISORY (score >= 30)
 
 An ADVISORY is machine-issued and worded as unverified. Only a moderator's
 CONFIRM produces a WARNING; DISMISS sends an all-clear to exactly the people
@@ -267,9 +269,13 @@ def on_new_report(db: Session, report: CitizenReport, now: datetime | None = Non
     db.commit()
 
     advisory = None
-    if (settings.escalation_enabled and score >= settings.advisory_immediate_score
-            and report.advisory_alert_id is None):
-        advisory = issue_advisory(db, report, f"score {score:.0f} >= {settings.advisory_immediate_score:.0f}", now)
+    if settings.escalation_enabled and report.advisory_alert_id is None:
+        sos_from = sos_senders(db, report) if report.issue_type == "sos" else 0
+        if score >= settings.advisory_immediate_score:
+            advisory = issue_advisory(db, report, f"score {score:.0f} >= {settings.advisory_immediate_score:.0f}", now)
+        elif sos_from >= settings.sos_cluster_min_senders:
+            advisory = issue_advisory(db, report, f"SOS from {sos_from} different people within "
+                                      f"{corroboration.CLUSTER_RADIUS_M / 1000:.1f} km", now)
 
     _rescore_neighbours(db, report, now)
     return {"score": score, "reasons": reasons,
@@ -295,6 +301,22 @@ def _rescore_neighbours(db: Session, report: CitizenReport, now: datetime) -> No
                           "reasons": other.corroboration_reasons,
                           "because_of_report": report.id}, commit=False)
     db.commit()
+
+
+def sos_senders(db: Session, report: CitizenReport) -> int:
+    """Different senders (phone, device or IP, see reports.sender_key) who sent
+    an SOS within the cluster radius and window of this one."""
+    created = _utc(report.created_at) or datetime.now(timezone.utc)
+    window = timedelta(minutes=corroboration.CLUSTER_WINDOW_MIN)
+    return int(db.execute(text("""
+        SELECT COUNT(DISTINCT a.detail->>'sender') FROM citizen_reports r
+        JOIN audit_log a ON a.resource = 'citizen_report' AND a.action = 'create'
+                        AND a.resource_id = r.id::text
+        WHERE r.issue_type = 'sos'
+          AND ST_DWithin(r.geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius)
+          AND r.created_at BETWEEN :start AND :end
+    """), {"lat": report.lat, "lon": report.lon, "radius": corroboration.CLUSTER_RADIUS_M,
+           "start": created - window, "end": created + window}).scalar() or 0)
 
 
 def tick(db: Session, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -335,11 +357,21 @@ def tick(db: Session, now: datetime | None = None) -> list[dict[str, Any]]:
             immediate = r.corroboration_score >= settings.advisory_immediate_score
             timed = (age_min >= settings.escalation_advisory_minutes
                      and r.corroboration_score >= settings.advisory_min_score)
-            if immediate or timed:
+            sos_from = sos_senders(db, r) if r.issue_type == "sos" else 0
+            sos_group = sos_from >= settings.sos_cluster_min_senders
+            # The ladder has run out (no officer at the next level) and the last
+            # one has had a full step to answer: silence must not mean nothing.
+            unanswered = (r.escalation_level >= 1 and not has_level(db, district, r.escalation_level)
+                          and age_min >= step_min * r.escalation_level
+                          and r.corroboration_score >= settings.advisory_unanswered_min_score)
+            if immediate or timed or sos_group or unanswered:
                 why = (f"score {r.corroboration_score:.0f} >= {settings.advisory_immediate_score:.0f}"
                        if immediate else
+                       f"SOS from {sos_from} different people within "
+                       f"{corroboration.CLUSTER_RADIUS_M / 1000:.1f} km" if sos_group else
                        f"unacknowledged for {age_min:.0f} min with score "
-                       f"{r.corroboration_score:.0f} >= {settings.advisory_min_score:.0f}")
+                       f"{r.corroboration_score:.0f} >= {settings.advisory_min_score:.0f}" if timed else
+                       f"no officer answered in {age_min:.0f} min — every level was notified")
                 alert = issue_advisory(db, r, why, now)
                 if alert:
                     actions.append({"report_id": r.id, "action": "advisory", "alert_id": alert.id})
@@ -393,6 +425,11 @@ def confirm(db: Session, report: CitizenReport, principal: Principal, notes: str
         advisory.status = "CONFIRMED"
         advisory.acknowledged = True
     report.warning_alert_id = warning.id
+    db.flush()
+    # The zone itself turns CRITICAL now (and on every recompute while the
+    # confirmation is fresh), so the map matches the warning just sent.
+    from .risk_service import compute_zone_risk
+    compute_zone_risk(db, zone, trigger="report-confirmed", raise_alerts=False)
     audit(db, principal, "confirm", "citizen_report", report.id,
           detail={"warning_alert_id": warning.id, "advisory_alert_id": report.advisory_alert_id},
           commit=False)

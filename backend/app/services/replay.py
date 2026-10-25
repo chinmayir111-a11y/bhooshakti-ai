@@ -36,3 +36,13 @@ def timeline(db: Session, lat: float, lon: float, centre_day: date, through: dat
 def results() -> dict[str, Any] | None:
     path = settings.model_file.parent / "backtest_results.json"
     return json.loads(path.read_text()) if path.exists() else None
+
+
+def earlier_results() -> list[dict[str, Any]]:
+    """Summaries written by scripts/backtest_year.py (a model trained only on
+    the years before the tested one), oldest first."""
+    out = []
+    for path in sorted(settings.model_file.parent.glob("backtest_[0-9][0-9][0-9][0-9].json")):
+        r = json.loads(path.read_text())
+        out.append({k: r[k] for k in ("test_year", "trained_on", "summary", "generated_at")})
+    return out

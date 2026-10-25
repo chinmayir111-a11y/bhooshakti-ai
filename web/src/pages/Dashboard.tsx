@@ -25,6 +25,12 @@ const Map3D = lazy(() => import('../components/Map3D'))
 interface Toast { id: number; step?: string; text: string }
 interface Tick { id: number; text: string; kind: string; at: string }
 
+/** Can this device draw WebGL at all? (Some office PCs, remote desktops and
+ *  old drivers cannot; they get the flat map only.) */
+function hasWebGL(): boolean {
+  try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')) } catch { return false }
+}
+
 /** 2D by default on connections that would struggle with vector + terrain tiles. */
 function slowConnection(): boolean {
   const c = (navigator as any).connection
@@ -70,6 +76,16 @@ export default function Dashboard() {
   const tickSeq = useRef(0)
 
   const [mode, setMode] = useLocalFlag('bhooshakti.map2d', slowConnection())      // true = 2D / low data
+  // The flat map shows at once on every device; the 3D map loads behind it
+  // and fades in only when it has actually drawn. No WebGL or a failure: the
+  // flat map stays.
+  const webgl = useMemo(hasWebGL, [])
+  const [failed3d, setFailed3d] = useState<string | null>(null)
+  const [ready3d, setReady3d] = useState(false)
+  const [hide2d, setHide2d] = useState(false)
+  const want3d = !mode && webgl && !failed3d
+  useEffect(() => { if (!want3d) { setReady3d(false); setHide2d(false) } }, [want3d])
+  useEffect(() => { if (!ready3d) return; const id = window.setTimeout(() => setHide2d(true), 900); return () => window.clearTimeout(id) }, [ready3d])
   const [demoOpen, setDemoOpen] = useState(false)
   const [tour, setTour] = useState<{ id: number; stops: View[]; onDone?: () => void } | null>(null)
   const [drawerMore, setDrawerMore] = useState(false)
@@ -115,7 +131,9 @@ export default function Dashboard() {
   const loadInfra = useCallback(async () => { try { setInfrastructure(await api.infrastructure()) } catch { /* offline */ } }, [])
   const loadSensors = useCallback(async () => { try { setSensors(await api.sensors()) } catch { /* offline */ } }, [])
   const loadAlerts = useCallback(async () => { try { setAlerts(await api.alerts(60)) } catch { /* offline */ } }, [])
-  const loadEsc = useCallback(async () => { try { setEscalations(await api.escalations()) } catch { /* offline */ } }, [])
+  // Pending reports, including ones someone is already checking: they keep their
+  // card (and CONFIRM / DISMISS) until a decision is made.
+  const loadEsc = useCallback(async () => { try { setEscalations(await api.escalations(true)) } catch { /* offline */ } }, [])
 
   useEffect(() => {
     loadZones(); loadSummary(); loadInfra(); loadSensors(); loadAlerts(); loadEsc()
@@ -246,9 +264,26 @@ export default function Dashboard() {
   async function run(name: string, fn: () => Promise<any>, done?: string) {
     setBusy(name)
     try { const r = await fn(); if (done) pushToast(done); return r }
-    catch (e: any) { pushToast(`${name} failed: ${e?.message ?? e}`) }
+    catch (e: any) { pushToast(`Not done: ${e?.message ?? e}`, 'Error') }
     finally { setBusy(null) }
   }
+
+  // Report buttons: a spinner while it runs, then a toast either way.
+  const [openReportId, setOpenReportId] = useState<number | null>(null)
+  async function reportAction(r: CitizenReport, kind: 'ack' | 'confirm' | 'dismiss') {
+    const res: any = await run(`${kind}-${r.id}`,
+      () => (kind === 'ack' ? api.acknowledgeReport(r.id) : kind === 'confirm' ? api.confirmReport(r.id) : api.dismissReport(r.id)))
+    if (res === undefined) return
+    pushToast(kind === 'ack' ? 'Marked as checking — the next officer will not be paged'
+      : kind === 'confirm' ? (res.warning_alert_id ? 'Danger confirmed — alerts sent' : 'Confirmed — outside every zone, so no zone alert was sent')
+      : (res.all_clear_alert_id ? 'Marked not real — all-clear sent' : 'Marked not real — nobody had been alerted'))
+    await Promise.all([loadEsc(), loadAlerts(), loadZones(), loadSummary()])
+  }
+  // A report dot on the map: show its card in "Waiting for check".
+  const selectReport = useCallback((id: number) => {
+    setRailTab('reports'); setOpenReportId(id)
+    window.setTimeout(() => document.getElementById(`esc-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60)
+  }, [])
 
   const counts = summary?.severity_counts ?? {}
   const sortedAlerts = useMemo(() => [...alerts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [alerts])
@@ -286,6 +321,8 @@ export default function Dashboard() {
         lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
         live: !!f.properties.live, failed: f.properties.status === 'FAILED', source: f.properties.source, anomalous,
         label: `${f.properties.node_id} · ${f.properties.source === 'hardware' ? (f.properties.live ? 'LIVE hardware' : 'hardware, offline') : 'simulated'}${latest ? ` · tilt ${latest.tilt_deg ?? '—'}° soil ${latest.soil_moisture_pct ?? '—'}%` : ''}`,
+        node: f.properties.node_id, tilt: latest?.tilt_deg ?? null, soil: latest?.soil_moisture_pct ?? null,
+        seen: `${f.properties.source === 'hardware' ? (f.properties.live ? 'Live hardware' : 'Hardware, offline') : 'Simulated node'}${f.properties.last_seen ? ` · last reading ${timeAgo(f.properties.last_seen)}` : ''}`,
       }
     })
   }, [sensors])
@@ -412,21 +449,21 @@ export default function Dashboard() {
               <>
                 {escalations.length === 0 && <div className="empty">No reports waiting. Nothing needs a human right now.</div>}
                 {escalations.map((r) => (
-                  <div key={r.id} className="esc-item">
+                  <div key={r.id} id={`esc-${r.id}`} className={`esc-item${r.zone_id ? '' : ' outside'}${openReportId === r.id ? ' open' : ''}`}>
                     <div className="esc-top">
-                      <span className="esc-score" style={{ color: scoreColour(r.corroboration_score) }}>{Math.round(r.corroboration_score)}</span>
+                      <span className="esc-score" style={{ color: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }}>{Math.round(r.corroboration_score)}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <strong style={{ fontSize: 13 }}>{r.issue_label}</strong> <span className="tiny muted">#{r.id} · {r.zone_name ?? 'outside zones'} · {timeAgo(r.created_at)}</span>
-                        <div className="esc-bar"><span style={{ width: `${r.corroboration_score}%`, background: scoreColour(r.corroboration_score) }} /></div>
+                        <strong style={{ fontSize: 13 }}>{r.issue_label}</strong> <span className="tiny muted">#{r.id} · {r.zone_name ?? 'Outside monitored area'} · {timeAgo(r.created_at)}</span>
+                        <div className="esc-bar"><span style={{ width: `${r.corroboration_score}%`, background: r.zone_id ? scoreColour(r.corroboration_score) : 'var(--text-muted)' }} /></div>
                       </div>
                     </div>
                     <div style={{ marginTop: 6 }}><EscalationLine r={r} now={now} /></div>
                     <ul className="esc-reasons">{(r.corroboration_reasons ?? []).slice(0, 2).map((x) => <li key={x.key}><b>{x.points > 0 ? '+' : ''}{x.points}</b>{x.text}</li>)}</ul>
                     {isAuthority && (
                       <div className="esc-actions">
-                        <button className="btn ghost sm" onClick={() => api.acknowledgeReport(r.id).then(loadEsc)}><IconCheck size={15} />I'm checking</button>
-                        <button className="btn confirm sm" onClick={() => api.confirmReport(r.id).then(loadEsc)}>CONFIRM</button>
-                        <button className="btn dismiss sm" onClick={() => api.dismissReport(r.id).then(loadEsc)}>DISMISS</button>
+                        {!r.escalation?.acknowledged_at && <button className="btn ghost sm" disabled={busy !== null} onClick={() => reportAction(r, 'ack')}>{busy === `ack-${r.id}` ? <span className="spinner" /> : <IconCheck size={15} />}I'm checking</button>}
+                        <button className="btn confirm sm" disabled={busy !== null} onClick={() => reportAction(r, 'confirm')}>{busy === `confirm-${r.id}` && <span className="spinner" />}CONFIRM</button>
+                        <button className="btn dismiss sm" disabled={busy !== null} onClick={() => reportAction(r, 'dismiss')}>{busy === `dismiss-${r.id}` && <span className="spinner" />}DISMISS</button>
                         {r.lat && <button className="btn ghost sm" onClick={() => { setFlyTo({ lat: r.lat, lon: r.lon, zoom: 12 }); if (r.zone_id) setSelectedZoneId(r.zone_id) }}>Map</button>}
                       </div>
                     )}
@@ -438,33 +475,40 @@ export default function Dashboard() {
         </aside>
 
         <div className={`map-wrap${zoneDetail ? ' has-drawer' : ''}`}>
-          {mode ? (
+          {!(want3d && hide2d) && (
             <MapView zones={zones} infrastructure={infrastructure} sensors={sensors} historical={historical}
                      layers={layers2d} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
                      rain={rainByZone} pulses={pulses} />
-          ) : (
-            <Suspense fallback={<div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}>
-              <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
-                     reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers}
-                     selectedZoneId={selectedZoneId} onSelectZone={selectZone} flyTo={flyTo} dark={dark}
-                     basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal} />
-            </Suspense>
           )}
+          {want3d && (
+            <div className={`map3d-layer${ready3d ? ' ready' : ''}`}>
+              <Suspense fallback={null}>
+                <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
+                       reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers}
+                       selectedZoneId={selectedZoneId} onSelectZone={selectZone} onSelectReport={selectReport} flyTo={flyTo} dark={dark}
+                       basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal}
+                       onReady={() => setReady3d(true)}
+                       onFail={(why) => { setFailed3d(why); pushToast(`3D map unavailable here (${why}) — showing the flat map.`) }} />
+              </Suspense>
+            </div>
+          )}
+          {want3d && !ready3d && <div className="map-loading-chip" role="status"><span className="spin" />Loading 3D map…</div>}
 
           {/* One compact control group, top-right; MapLibre's zoom/compass sit under it. */}
           <div className="map-ctrl">
             <div className="seg">
-              <button className={!mode ? 'on' : ''} onClick={() => setMode(false)} title="Vector tiles + terrain">3D</button>
-              <button className={mode ? 'on' : ''} onClick={() => setMode(true)} title="Flat raster map — for slow networks and low-end devices">2D</button>
+              <button className={want3d ? 'on' : ''} disabled={!webgl} onClick={() => { setFailed3d(null); setMode(false) }}
+                      title={webgl ? 'Vector tiles + terrain' : 'This device cannot draw the 3D map (no WebGL)'}>3D</button>
+              <button className={!want3d ? 'on' : ''} onClick={() => setMode(true)} title="Flat map — works on every device">2D</button>
             </div>
-            {!mode && (
+            {want3d && (
               <div className="seg">
                 <button className={!satellite ? 'on' : ''} onClick={() => setSatellite(false)}>Map</button>
                 <button className={satellite ? 'on' : ''} onClick={() => setSatellite(true)} title="Esri World Imagery on the terrain">Satellite</button>
               </div>
             )}
             <div className="layers-menu" onMouseLeave={() => setLayersOpen(false)}>
-              <button className={`iconbtn${layersOpen ? ' on' : ''}`} aria-label="Layers" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}><IconLayers size={16} /> Layers</button>
+              <button className={`iconbtn${layersOpen ? ' on' : ''}`} aria-label="Layers" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}><IconLayers size={16} /><span className="lbl">Layers</span></button>
               {layersOpen && (
                 <div className="menu">
                   {LAYER_LABELS.map(([key, label]) => (
@@ -475,7 +519,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            {!mode && <button className="iconbtn" aria-label="Reset view" title="Reset view" onClick={() => setResetSignal((n) => n + 1)}><IconCompass size={16} /></button>}
+            {want3d && <button className="iconbtn" title="Fit every monitored zone in view" aria-label="Show all zones" onClick={() => setResetSignal((n) => n + 1)}><IconCompass size={16} /><span className="lbl">Show all zones</span></button>}
           </div>
 
           {/* Legend, bottom-left, closed by default: just the four severity dots. */}
@@ -543,7 +587,7 @@ function RightNow({ summary, escalations, zones, alerts, onZone, onReports }: {
 }) {
   const atRisk = (zones?.features ?? []).filter((f: any) => ['HIGH', 'CRITICAL'].includes(f.properties.severity))
     .sort((x: any, y: any) => (y.properties.risk_score ?? 0) - (x.properties.risk_score ?? 0))
-  const waiting = escalations.length
+  const waiting = escalations.filter((r) => !r.escalation?.acknowledged_at).length
   const calm = atRisk.length === 0 && waiting === 0
   const parts: string[] = []
   if (atRisk.length) parts.push(`${atRisk.length} zone${atRisk.length > 1 ? 's' : ''} need${atRisk.length > 1 ? '' : 's'} attention`)

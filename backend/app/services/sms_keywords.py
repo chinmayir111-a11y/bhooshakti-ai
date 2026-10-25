@@ -1,6 +1,8 @@
 """Keyword SMS for people without a smartphone or a data connection.
 
     LS <pincode or village> [what you see]   report a landslide
+    LS <lat>,<lon> [what you see]             same, from GPS (the citizen app fills
+                                              this in when there is no internet)
     SAFE <pincode or village>                 ask the current risk
     JOIN <pincode or village> [EN|HI|AS|BN|NE]  get that zone's alerts
     STOP                                      stop alerts
@@ -28,6 +30,9 @@ KEYWORDS = {
 }
 LANG_CODES = {"EN": "en", "HI": "hi", "AS": "as", "BN": "bn", "NE": "ne"}
 PINCODE = re.compile(r"^\d{6}$")
+# "26.95300,88.32100" or "26.953 88.321": decimal degrees, as the citizen app
+# writes them. Only points inside India's box count, so a stray number never does.
+COORDS = re.compile(r"(-?\d{1,2}\.\d{2,7})\s*[,; ]\s*(-?\d{2,3}\.\d{2,7})")
 
 HELP_TEXT = ("BHOOSHAKTI [DEMO]: LS <pincode> <what you see> = report landslide. "
              "SAFE <pincode> = current risk. JOIN <pincode> = get alerts. STOP = stop. "
@@ -41,6 +46,8 @@ class Command:
     place: str | None = None        # free-text place when no pincode was given
     detail: str = ""                # the rest of the message
     language: str | None = None     # JOIN ... HI
+    lat: float | None = None        # GPS sent instead of a pincode
+    lon: float | None = None
     raw: str = ""
 
 
@@ -59,6 +66,20 @@ def parse(body: str) -> Command:
     cmd = Command(intent, raw=raw)
     if intent in ("stop", "help") or not rest:
         return cmd
+
+    # GPS coordinates, read before the punctuation is stripped.
+    after = raw.split(None, 1)[1] if len(raw.split(None, 1)) > 1 else ""
+    m = COORDS.match(after.strip())
+    if m:
+        lat, lon = float(m.group(1)), float(m.group(2))
+        if 6.0 <= lat <= 37.5 and 68.0 <= lon <= 98.0:
+            cmd.lat, cmd.lon = lat, lon
+            rest = re.sub(r"[,;:.!]+", " ", after.strip()[m.end():]).split()
+            if intent == "join" and rest and rest[-1].upper() in LANG_CODES:
+                cmd.language = LANG_CODES[rest[-1].upper()]
+                rest = rest[:-1]
+            cmd.detail = " ".join(rest)
+            return cmd
 
     if PINCODE.match(rest[0]):
         cmd.pincode = rest[0]
@@ -83,6 +104,15 @@ def resolve(db: Session, cmd: Command) -> dict[str, Any] | None:
     names a known place wins, and whatever follows becomes the description:
     "LS Mirik road blocked near school" -> place Mirik, detail "road blocked…".
     """
+    if cmd.lat is not None and cmd.lon is not None:
+        # Name the spot after the nearest known place, for the reply.
+        near = db.execute(text("""
+            SELECT pincode, place, district FROM pincodes
+            ORDER BY (lat - :la) * (lat - :la) + (lon - :lo) * (lon - :lo) LIMIT 1
+        """), {"la": cmd.lat, "lo": cmd.lon}).mappings().first()
+        return {"pincode": near["pincode"] if near else "", "place": f"your location (near {near['place']})" if near else "your location",
+                "district": near["district"] if near else "", "lat": cmd.lat, "lon": cmd.lon, "zone_id": None}
+
     if cmd.pincode:
         row = db.execute(text("""
             SELECT pincode, place, district, lat, lon, zone_id FROM pincodes

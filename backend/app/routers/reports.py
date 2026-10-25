@@ -7,11 +7,13 @@ so that it can never sit unseen.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_db
 from ..deps import Principal, audit, current_principal, require_authority
 from ..models import CitizenReport, ReportStatus, Zone
@@ -72,11 +74,61 @@ def _zone_name(db: Session, zone_id: int | None) -> str | None:
     return z.name if z else None
 
 
+def sender_key(phone: str = "", device_id: str | None = None, request: Request | None = None) -> str:
+    """Who sent it, as well as we can tell without an account: the phone number,
+    else the app's per-device id, else the network address."""
+    if phone.strip():
+        return "phone:" + phone.strip()[:32]
+    if device_id and device_id.strip():
+        return "device:" + device_id.strip()[:64]
+    if request is not None and request.client:
+        return "ip:" + request.client.host
+    return ""
+
+
+def _recent_from(db: Session, sender: str, since: datetime) -> list[CitizenReport]:
+    ids = [r[0] for r in db.execute(text("""
+        SELECT r.id FROM audit_log a
+        JOIN citizen_reports r ON r.id::text = a.resource_id
+        WHERE a.resource = 'citizen_report' AND a.action = 'create'
+          AND a.detail->>'sender' = :s AND r.created_at > :since
+        ORDER BY r.created_at DESC
+    """), {"s": sender, "since": since})]
+    return [db.get(CitizenReport, i) for i in ids]
+
+
+def _fold_target(db: Session, sender: str, issue_type: str) -> CitizenReport | None:
+    """The card a new report should join instead of opening another, if any.
+
+    An SOS is never refused: a second SOS from the same sender within a few
+    minutes is the same emergency. Anything else past the hourly limit joins
+    the sender's latest card, so one person cannot bury real reports."""
+    if not sender:
+        return None
+    now = datetime.now(timezone.utc)
+    recent = _recent_from(db, sender, now - timedelta(hours=1))
+    if issue_type == "sos":
+        cutoff = now - timedelta(minutes=settings.sos_merge_minutes)
+        return next((r for r in recent if r.issue_type == "sos" and r.created_at > cutoff), None)
+    others = [r for r in recent if r.issue_type != "sos"]
+    return others[0] if len(others) >= settings.report_limit_per_hour else None
+
+
 def submit(db: Session, *, issue_type: str, lat: float, lon: float, description: str = "",
            phone: str = "", language: str = "en", photo_path: str = "", voice_path: str = "",
-           channel: str = "web", client_uuid: str | None = None,
+           channel: str = "web", client_uuid: str | None = None, device_id: str | None = None,
            principal: Principal | None = None, request: Request | None = None) -> CitizenReport:
     """Store one report from any channel (web, PWA, SMS, IVR) and start triage."""
+    sender = sender_key(phone, device_id, request)
+    target = _fold_target(db, sender, issue_type)
+    if target is not None:
+        audit(db, principal or escalation.SYSTEM, "folded", "citizen_report", target.id, request,
+              {"sender": sender, "issue_type": issue_type, "description": description.strip()[:300]},
+              commit=False)
+        db.commit()
+        target.folded = True          # read by create_report; not a column
+        return target
+
     located = spatial.locate_point(db, lat, lon)
     report = CitizenReport(
         issue_type=issue_type,
@@ -98,7 +150,8 @@ def submit(db: Session, *, issue_type: str, lat: float, lon: float, description:
     db.add(report)
     db.flush()
     audit(db, principal or escalation.SYSTEM, "create", "citizen_report", report.id, request,
-          {"issue_type": issue_type, "geo_valid": located["geo_valid"], "channel": channel},
+          {"issue_type": issue_type, "geo_valid": located["geo_valid"], "channel": channel,
+           "sender": sender},
           commit=False)
     db.commit()
 
@@ -128,11 +181,12 @@ def create_report(body: CitizenReportCreate, request: Request,
         description=body.description, phone=body.phone, language=body.language,
         photo_path=save_photo(body.photo_base64, prefix="citizen"),
         voice_path=save_audio(body.voice_base64, prefix="citizen-voice"),
-        channel=body.channel, client_uuid=body.client_uuid,
+        channel=body.channel, client_uuid=body.client_uuid, device_id=body.device_id,
         principal=principal, request=request,
     )
     return {
         **serialise(db, report, _zone_name(db, report.zone_id)),
+        "folded": getattr(report, "folded", False),
         "acknowledgement": ("Your report has been received. A district officer has been "
                             "notified and it will be escalated automatically if nobody "
                             "responds."),
@@ -158,11 +212,13 @@ def list_reports(request: Request, status: str | None = None,
 
 
 @router.get("/escalations", summary="Open reports with their next escalation step")
-def escalations(db: Session = Depends(get_db)) -> list[dict]:
-    reports = db.query(CitizenReport).filter(
-        CitizenReport.status == ReportStatus.PENDING,
-        CitizenReport.acknowledged_at.is_(None),
-    ).order_by(CitizenReport.corroboration_score.desc(), CitizenReport.id).limit(100).all()
+def escalations(include_checking: bool = Query(False, description="Also return reports an officer "
+                                                "is already checking (acknowledged, not yet decided)"),
+                db: Session = Depends(get_db)) -> list[dict]:
+    q = db.query(CitizenReport).filter(CitizenReport.status == ReportStatus.PENDING)
+    if not include_checking:
+        q = q.filter(CitizenReport.acknowledged_at.is_(None))
+    reports = q.order_by(CitizenReport.corroboration_score.desc(), CitizenReport.id).limit(100).all()
     names = {z.id: z.name for z in db.query(Zone).all()}
     return [serialise(db, r, names.get(r.zone_id)) for r in reports]
 

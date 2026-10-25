@@ -38,7 +38,7 @@ prediction.** Every risk output carries a **confidence score** and **ranked cont
 factors in plain language**. Confidence falls when the evidence is thin: failed sensors,
 stale telemetry, or the model disagreeing with what the rain gauges say. Model skill is
 reported only one way: as counts from a backtest on real held-out landslides
-(*warned before 16 of 34*), never as an accuracy percentage — see
+(*warned before 55 of 100 across two held-out years*), never as an accuracy percentage — see
 [Backtest on real landslides](#backtest-on-real-landslides).
 
 ---
@@ -644,7 +644,19 @@ February week, to count false alarms.
 **Result (model `v2.0-xgb-real`, 24 Oct 2026):**
 
 > Warned before **16 of 34** held-out landslides (median **63 h** ahead); 0 more on the same day;
-> **18 missed**. False alarms: **3 of 6** same-season non-event windows, **2 of 34** dry-season windows.
+> **18 missed**. False alarms: **4 of 7** same-season non-event windows, **2 of 34** dry-season windows.
+
+**The same test one year earlier** (`make backtest-2015`, `scripts/backtest_year.py`): the same
+training recipe on the 253 events of 2007–2014 only — in memory, the shipped model is untouched —
+then the same replay on all 66 events of 2015:
+
+> Warned before **39 of 66** (median **62 h** ahead); 2 more on the same day; **25 missed**.
+> False alarms: **21 of 66** same-season non-event windows, **0 of 66** dry-season windows.
+
+**Together: warned before 55 of 100 real landslides the model had never seen, in two separate
+years.** Training on more years (75 → 253 events) left the 2015 catch unchanged and cut its
+false alarms from 31 to 21 of 66; richer rain features did not help; and a 72-hour rainfall rule
+scores about the same. The ceiling is the 25 km reanalysis, not the model.
 
 Of the two demo events, **Aizawl 28 May 2024** was warned 3.5 h ahead; **Noney/Tupul 30 June
 2022** was **missed** (peak risk 42.5, under the threshold). Both are shown as-is on `/replay`.

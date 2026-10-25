@@ -120,7 +120,15 @@
     "sos_sent_body": "Your location and time have gone to the district officer as top priority. We are opening a call to 112.",
     "sos_queued_body": "No network: the SOS is saved and will send when it returns. We are opening your SMS app with your location.",
     "sos_no_location": "We could not get your location. Call 112 now.",
-    "call_112": "Call 112"
+    "call_112": "Call 112",
+    "sms_buttons_title": "No internet? Tap a button — we write the SMS for you",
+    "sms_btn_report": "Report a landslide",
+    "sms_btn_safe": "Is my area safe?",
+    "sms_btn_join": "Send me warnings",
+    "sms_ready_say": "Your message is ready. On the next screen, press the send button.",
+    "sms_ready_show": "Message ready — press Send",
+    "sms_finding_location": "Finding your location…",
+    "sms_no_number": "No SMS number is set up yet, so the “To” box will be empty."
   },
   "hi": {
     "lang_name": "हिन्दी",
@@ -227,7 +235,15 @@
     "sos_sent_body": "आपकी जगह और समय ज़िला अधिकारी को सर्वोच्च प्राथमिकता से भेज दिए गए हैं। हम 112 पर कॉल खोल रहे हैं।",
     "sos_queued_body": "नेटवर्क नहीं: SOS सहेज लिया गया, नेटवर्क आते ही जाएगा। हम आपकी जगह के साथ SMS ऐप खोल रहे हैं।",
     "sos_no_location": "आपकी जगह नहीं मिल सकी। अभी 112 पर कॉल करें।",
-    "call_112": "112 पर कॉल करें"
+    "call_112": "112 पर कॉल करें",
+    "sms_buttons_title": "इंटरनेट नहीं है? बटन दबाएँ — SMS हम लिख देंगे",
+    "sms_btn_report": "भूस्खलन की सूचना दें",
+    "sms_btn_safe": "क्या मेरा इलाका सुरक्षित है?",
+    "sms_btn_join": "मुझे चेतावनी भेजें",
+    "sms_ready_say": "आपका संदेश तैयार है। अगली स्क्रीन पर भेजें बटन दबाएँ।",
+    "sms_ready_show": "संदेश तैयार — भेजें दबाएँ",
+    "sms_finding_location": "आपकी जगह ढूँढ रहे हैं…",
+    "sms_no_number": "अभी SMS नंबर सेट नहीं है, इसलिए “प्रति” खाली रहेगा।"
   },
   "as": {
     "lang_name": "অসমীয়া",
@@ -334,7 +350,15 @@
     "sos_sent_body": "আপোনাৰ স্থান আৰু সময় জিলা বিষয়ালৈ সৰ্বোচ্চ অগ্ৰাধিকাৰেৰে গৈছে। আমি 112 লৈ কল খুলিছোঁ।",
     "sos_queued_body": "নেটৱৰ্ক নাই: SOS সংৰক্ষিত, নেটৱৰ্ক আহিলেই যাব। আপোনাৰ স্থানৰ সৈতে SMS এপ খুলিছোঁ।",
     "sos_no_location": "আপোনাৰ স্থান পোৱা নগ'ল। এতিয়াই 112 লৈ কল কৰক।",
-    "call_112": "112 লৈ কল কৰক"
+    "call_112": "112 লৈ কল কৰক",
+    "sms_buttons_title": "ইণ্টাৰনেট নাই? বুটাম টিপক — SMS আমি লিখি দিম",
+    "sms_btn_report": "ভূমিস্খলনৰ খবৰ দিয়ক",
+    "sms_btn_safe": "মোৰ অঞ্চল সুৰক্ষিত নে?",
+    "sms_btn_join": "মোক সতৰ্কবাণী পঠিয়াওক",
+    "sms_ready_say": "আপোনাৰ বাৰ্তা সাজু। পিছৰ স্ক্ৰীণত পঠিওৱা বুটামটো টিপক।",
+    "sms_ready_show": "বাৰ্তা সাজু — পঠিয়াওক টিপক",
+    "sms_finding_location": "আপোনাৰ স্থান বিচাৰি আছো…",
+    "sms_no_number": "এতিয়াও SMS নম্বৰ ছেট কৰা হোৱা নাই, গতিকে “প্ৰাপক” খালী থাকিব।"
   },
   "bn": {
     "lang_name": "বাংলা",
@@ -441,7 +465,15 @@
     "sos_sent_body": "আপনার অবস্থান ও সময় সর্বোচ্চ অগ্রাধিকারে জেলা কর্মকর্তার কাছে গেছে। আমরা 112-এ কল খুলছি।",
     "sos_queued_body": "নেটওয়ার্ক নেই: SOS সংরক্ষিত, ফিরলেই যাবে। আপনার অবস্থানসহ SMS অ্যাপ খুলছি।",
     "sos_no_location": "আপনার অবস্থান পাওয়া যায়নি। এখনই 112-এ কল করুন।",
-    "call_112": "112-এ কল করুন"
+    "call_112": "112-এ কল করুন",
+    "sms_buttons_title": "ইন্টারনেট নেই? বোতাম টিপুন — SMS আমরা লিখে দেব",
+    "sms_btn_report": "ভূমিধসের খবর দিন",
+    "sms_btn_safe": "আমার এলাকা কি নিরাপদ?",
+    "sms_btn_join": "আমাকে সতর্কবার্তা পাঠান",
+    "sms_ready_say": "আপনার বার্তা তৈরি। পরের স্ক্রিনে পাঠান বোতাম টিপুন।",
+    "sms_ready_show": "বার্তা তৈরি — পাঠান টিপুন",
+    "sms_finding_location": "আপনার অবস্থান খোঁজা হচ্ছে…",
+    "sms_no_number": "এখনও SMS নম্বর সেট করা হয়নি, তাই “প্রাপক” খালি থাকবে।"
   },
   "ne": {
     "lang_name": "नेपाली",
@@ -548,6 +580,14 @@
     "sos_sent_body": "तपाईंको स्थान र समय जिल्ला अधिकारीलाई उच्च प्राथमिकतामा पठाइयो। हामी 112 मा कल खोल्दैछौं।",
     "sos_queued_body": "नेटवर्क छैन: SOS सुरक्षित छ, फर्केपछि जान्छ। तपाईंको स्थानसहित SMS एप खोल्दैछौं।",
     "sos_no_location": "तपाईंको स्थान पाइएन। अहिले 112 मा कल गर्नुहोस्।",
-    "call_112": "112 मा कल गर्नुहोस्"
+    "call_112": "112 मा कल गर्नुहोस्",
+    "sms_buttons_title": "इन्टरनेट छैन? बटन थिच्नुहोस् — SMS हामी लेखिदिन्छौं",
+    "sms_btn_report": "पहिरोको खबर दिनुहोस्",
+    "sms_btn_safe": "मेरो क्षेत्र सुरक्षित छ?",
+    "sms_btn_join": "मलाई चेतावनी पठाउनुहोस्",
+    "sms_ready_say": "तपाईंको सन्देश तयार छ। अर्को स्क्रिनमा पठाउने बटन थिच्नुहोस्।",
+    "sms_ready_show": "सन्देश तयार — पठाउनुहोस् थिच्नुहोस्",
+    "sms_finding_location": "तपाईंको स्थान खोज्दै…",
+    "sms_no_number": "SMS नम्बर अझै सेट छैन, त्यसैले “प्रापक” खाली हुनेछ।"
   }
 }

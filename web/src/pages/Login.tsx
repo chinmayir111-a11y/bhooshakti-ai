@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, setSession } from '../api/client'
 import { HillsHeader } from '../components/Pictograms'
 import '../styles/theme.css'
@@ -7,6 +7,9 @@ import '../styles/theme.css'
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation() as { state?: { from?: { pathname: string } } }
+  const [params] = useSearchParams()
+  const expired = params.get('expired') === '1'
+  const next = params.get('next')
   const [username, setUsername] = useState('authority')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -24,7 +27,8 @@ export default function Login() {
     try {
       const r = await api.login(username, password)
       setSession(r.access_token, { username: r.username, role: r.role, full_name: r.full_name, designation: r.designation })
-      navigate(location.state?.from?.pathname ?? '/control')
+      if (r.role === 'citizen') navigate('/', { replace: true })
+      else navigate(next?.startsWith('/') ? next : location.state?.from?.pathname ?? '/control', { replace: true })
     } catch (err: any) {
       setError(err?.message ?? 'Sign-in failed')
     } finally { setBusy(false) }
@@ -43,6 +47,7 @@ export default function Login() {
         <div className="card-body">
           <div className="grid-2">
             <form onSubmit={submit}>
+              {expired && <p className="notice" style={{ marginBottom: 12 }}>Your sign-in expired, so the last action was not saved. Sign in again and repeat it.</p>}
               <div className="field">
                 <label className="label" htmlFor="u">Username</label>
                 <input id="u" type="text" value={username} autoComplete="username" onChange={(e) => setUsername(e.target.value)} />

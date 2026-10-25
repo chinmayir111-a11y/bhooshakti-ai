@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     advisory_immediate_score: float = 85.0
     escalation_interval_s: int = 60
     escalation_enabled: bool = True
+    # Two or more SOS from different senders close together: advise at once.
+    sos_cluster_min_senders: int = 2
+    # Every officer on the ladder was told and nobody answered: advise anyway,
+    # unless the report has almost no evidence behind it.
+    advisory_unanswered_min_score: float = 30.0
+    # One sender (phone, device or IP) can open this many report cards an hour;
+    # more are folded into their latest card. SOS is never refused.
+    report_limit_per_hour: int = 5
+    sos_merge_minutes: int = 10
 
     # Siren relay: published on every WARNING.
     mqtt_siren_prefix: str = "bhooshakti/siren"
@@ -101,6 +110,9 @@ class Settings(BaseSettings):
     weather_archive_lag_days: int = 3
     weather_timeout_s: int = 90
     weather_batch_size: int = 25
+    # Background job: re-pull recent + forecast rain, then rescore every zone
+    # (raising alerts on a rise). 0 turns it off.
+    weather_refresh_minutes: int = 30
 
     # ml
     model_path: str = "ml/artifacts/susceptibility_xgb.joblib"

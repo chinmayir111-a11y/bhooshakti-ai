@@ -101,6 +101,14 @@ class EmailChannel:
                     "SMTP_HOST not configured — set it in .env to send for real", _now(),
                 ))
                 continue
+            if to_addr.lower().endswith(".local"):
+                # Seeded demo officials have made-up addresses; sending to them
+                # would only bounce back into the sender's inbox.
+                results.append(DeliveryResult(
+                    self.name, to_addr, "SIMULATED",
+                    "placeholder address (.local) — not sent", _now(),
+                ))
+                continue
             results.append(self._send_one(payload, to_addr))
         return results
 

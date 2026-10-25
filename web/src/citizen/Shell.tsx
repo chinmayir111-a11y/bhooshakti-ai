@@ -93,7 +93,11 @@ export default function Shell({ title, back = false, home = false, children }: {
         {children}
         {needsReview(lang) && <p className="cz-review">{t('review_note')}</p>}
       </main>
-      <footer className="cz-foot"><Link to="/about">{t('about')}</Link></footer>
+      <footer className="cz-foot">
+        <Link to="/about">{t('about')}</Link>
+        <span aria-hidden="true"> · </span>
+        <Link to="/help#sms">SMS</Link>
+      </footer>
     </div>
   )
 }

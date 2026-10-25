@@ -60,9 +60,13 @@ export default function Moderation() {
   useEffect(load, [load])
   useLive((m) => { if (['report.new', 'report.moderated', 'report.escalation'].includes(m.event)) load() })
 
+  // Never silent: a refused or failed action says why, on the page.
+  const [failure, setFailure] = useState('')
   async function act(id: number, fn: () => Promise<any>) {
-    setBusy(id)
-    try { await fn(); load() } finally { setBusy(null) }
+    setBusy(id); setFailure('')
+    try { await fn(); load() }
+    catch (e: any) { setFailure(`Report #${id}: not done — ${e?.message ?? e}`) }
+    finally { setBusy(null) }
   }
 
   return (
@@ -73,6 +77,7 @@ export default function Moderation() {
       </PageTitle>
       <div className="page-body">
         <div className="page-narrow stack">
+          {failure && <p className="notice" role="alert">{failure}</p>}
           <div className="row">
             <span className="label">Show</span>
             <div className="seg">

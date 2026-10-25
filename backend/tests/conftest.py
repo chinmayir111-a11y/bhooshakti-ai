@@ -16,6 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import text  # noqa: E402
 
 from app.db import SessionLocal, engine  # noqa: E402
+from app.config import settings as _settings  # noqa: E402
+
+# No background weather pulls or rescoring while tests run.
+_settings.weather_refresh_minutes = 0
 
 
 def _database_ready() -> tuple[bool, str]:
@@ -101,3 +105,10 @@ def trained_model():
     from app.services import risk_service
     risk_service.registry.load()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_real_email(monkeypatch):
+    """Tests never send real email, even when .env has SMTP set up."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "smtp_host", "")

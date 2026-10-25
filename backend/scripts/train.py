@@ -134,6 +134,24 @@ def build(db, events: list[dict], rng: random.Random, catalogue: list[Event]) ->
     return rows, labels, stats
 
 
+def fit(X_rows: list, y: list):
+    """The production model recipe. Shared with scripts/backtest_year.py so an
+    earlier-year test trains exactly what ships, just on less data."""
+    X, y = build_frame(X_rows), np.asarray(y)
+    pre = ColumnTransformer([("num", "passthrough", HYDRO_FEATURES)], remainder="drop")
+    clf = XGBClassifier(
+        n_estimators=300, max_depth=3, learning_rate=0.05, subsample=0.85,
+        colsample_bytree=1.0, min_child_weight=3, reg_lambda=2.0,
+        objective="binary:logistic", eval_metric="logloss",
+        # Monotone: more rain or wetter soil can never LOWER the probability.
+        monotone_constraints="(1,1,1,1)",
+        random_state=settings.seed_random_state, n_jobs=4, tree_method="hist",
+    )
+    pipe = Pipeline([("pre", pre), ("clf", CalibratedClassifierCV(estimator=clf, method="sigmoid", cv=3))])
+    pipe.fit(X, y)
+    return pipe
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Train on real NE-India landslides")
     ap.add_argument("--test-year", type=int, default=2016)
@@ -163,19 +181,9 @@ def main() -> int:
     if stats["positives"] < 20:
         raise SystemExit("Too few events with cached weather — let import_landslides.py finish.")
 
-    X, y = build_frame(X_rows), np.asarray(y)
-    pre = ColumnTransformer([("num", "passthrough", HYDRO_FEATURES)], remainder="drop")
-    clf = XGBClassifier(
-        n_estimators=300, max_depth=3, learning_rate=0.05, subsample=0.85,
-        colsample_bytree=1.0, min_child_weight=3, reg_lambda=2.0,
-        objective="binary:logistic", eval_metric="logloss",
-        # Monotone: more rain or wetter soil can never LOWER the probability.
-        monotone_constraints="(1,1,1,1)",
-        random_state=settings.seed_random_state, n_jobs=4, tree_method="hist",
-    )
-    pipe = Pipeline([("pre", pre), ("clf", CalibratedClassifierCV(estimator=clf, method="sigmoid", cv=3))])
     print("\n  fitting XGBoost (monotone in every rainfall/soil feature) + Platt calibration ...")
-    pipe.fit(X, y)
+    pipe = fit(X_rows, y)
+    X, y = build_frame(X_rows), np.asarray(y)
 
     metrics: dict = {"n_train": int(len(y)), "train_positives": int(y.sum())}
     if Xt_rows and len(set(yt)) == 2:

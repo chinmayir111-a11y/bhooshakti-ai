@@ -44,7 +44,7 @@ DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
 .PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean import-landslides backtest \
+        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 \
         train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
@@ -152,6 +152,9 @@ train: ## Train the model on the real events (hold out the most recent year)
 
 backtest: ## Replay held-out real landslides; writes ml/artifacts/backtest_results.json
 	@cd backend && .venv/bin/python scripts/backtest.py
+
+backtest-2015: ## Same test on 2015, model trained on 2007-2014 only; writes ml/artifacts/backtest_2015.json
+	@cd backend && .venv/bin/python scripts/backtest_year.py --year 2015
 
 train-synthetic: ## Offline dev only: seed --synthetic events and train on them
 	@cd backend && .venv/bin/python scripts/seed.py --reset --synthetic && .venv/bin/python scripts/train_synthetic.py

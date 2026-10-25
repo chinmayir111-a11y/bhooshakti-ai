@@ -7,7 +7,7 @@
  */
 import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { getToken } from './api/client'
+import { getToken, getUser } from './api/client'
 import CitizenHome from './citizen/Home'
 import CitizenReport from './citizen/Report'
 import CitizenSafe from './citizen/Safe'
@@ -21,6 +21,8 @@ const Login = lazy(() => import('./pages/Login'))
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   if (!getToken()) return <Navigate to="/login" state={{ from: location }} replace />
+  // A citizen account has nothing to do in the control room: send it to the public app.
+  if (getUser()?.role === 'citizen') return <Navigate to="/" replace />
   return <>{children}</>
 }
 

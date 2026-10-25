@@ -134,6 +134,10 @@ class CitizenReportCreate(BaseModel):
     client_uuid: str | None = Field(
         None, description="Set by the offline queue so a replayed report is stored once."
     )
+    device_id: str | None = Field(
+        None, max_length=64,
+        description="Random id the app keeps per device; tells senders apart when no phone is given.",
+    )
 
 
 class DecisionRequest(BaseModel):

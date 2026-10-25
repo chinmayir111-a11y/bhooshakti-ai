@@ -72,7 +72,7 @@ def _audit(db, report_id: int) -> list[str]:
 
 def test_ladder_climbs_every_ten_minutes_until_acknowledged(tx_db, pin_score, no_siren):
     from app.services import escalation
-    pin_score(40)                                  # below every advisory threshold
+    pin_score(20)                                  # below every advisory threshold
     t0 = datetime.now(timezone.utc)
     r = _report(tx_db, t0)
 
@@ -87,7 +87,7 @@ def test_ladder_climbs_every_ten_minutes_until_acknowledged(tx_db, pin_score, no
 
     acts = _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=20)), r)
     assert acts == [{"report_id": r.id, "action": "escalate", "level": 2}]
-    assert r.advisory_alert_id is None, "score 40 must never auto-advise"
+    assert r.advisory_alert_id is None, "score 20 must never auto-advise"
 
     # Roster has three levels; the ladder stops at the top instead of looping.
     assert _mine(escalation.tick(tx_db, now=t0 + timedelta(minutes=45)), r) == []
@@ -134,7 +134,9 @@ def test_score_59_never_advises_on_the_timer(tx_db, pin_score, no_siren):
     pin_score(59)
     t0 = datetime.now(timezone.utc)
     r = _report(tx_db, t0)
-    escalation.tick(tx_db, now=t0 + timedelta(minutes=60))
+    # Past the 20-minute timer, before the ladder runs out at 30 (after which
+    # test_safety_nets' "nobody answered" rule takes over).
+    escalation.tick(tx_db, now=t0 + timedelta(minutes=25))
     assert r.advisory_alert_id is None
 
 
@@ -237,3 +239,19 @@ def test_second_report_of_the_same_slide_joins_the_open_advisory(tx_db, pin_scor
     assert tx_db.get(Alert, a.advisory_alert_id).status == "ACTIVE"
     follow = escalation.dismiss(tx_db, a, me)
     assert follow is not None and tx_db.get(Alert, a.advisory_alert_id).status == "DISMISSED"
+
+
+def test_confirm_turns_the_zone_itself_critical(tx_db, pin_score, no_siren):
+    """The map colours zones from zone_risk; a confirmed report must move it
+    to CRITICAL, matching the WARNING that went out."""
+    from sqlalchemy import text
+    from app.deps import Principal
+    from app.services import escalation
+    pin_score(90)
+    t0 = datetime.now(timezone.utc)
+    r = _report(tx_db, t0, zone_code="AR-03")
+    escalation.tick(tx_db, now=t0)
+    escalation.confirm(tx_db, r, Principal(1, "authority", "authority"))
+    row = tx_db.execute(text("SELECT severity::text AS s, risk_score, contributing_factors FROM zone_risk "
+                             "WHERE zone_id = :z ORDER BY computed_at DESC, id DESC LIMIT 1"), {"z": r.zone_id}).mappings().first()
+    assert row["s"] == "CRITICAL" and row["risk_score"] >= 75
