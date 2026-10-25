@@ -2,6 +2,8 @@
 Everything here is REAL data: NASA GLC / curated events and ERA5 weather."""
 from __future__ import annotations
 
+from collections import defaultdict
+
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -171,3 +173,28 @@ def replay_custom(body: CustomReplayRequest, db: Session = Depends(get_db)) -> d
                        "forecast_input": "statistical nowcast only (no future data used)", "real": True,
                        "weather_fetch": result},
     }
+
+
+@router.get("/events/{event_id}/sources", summary="ERA5 vs NASA IMERG daily rain for the event week")
+def two_sources(event_id: int, db: Session = Depends(get_db)) -> dict:
+    """Two independent rain sources: the weather model (ERA5 via Open-Meteo,
+    25 km) and the satellite (NASA GPM IMERG, 10 km), UTC days. IMERG comes
+    from the cache scripts/fetch_imerg.py fills; empty means hide the chart."""
+    ev = db.execute(text("SELECT id, occurred_on, lat, lon, title FROM historical_events WHERE id = :i"),
+                    {"i": event_id}).mappings().first()
+    if ev is None:
+        raise HTTPException(404, "No such event")
+    sat = db.execute(text("SELECT day, mm, grid_lat, grid_lon, source FROM satellite_rain WHERE event_id = :i ORDER BY day"),
+                     {"i": event_id}).mappings().all()
+    if not sat:
+        return {"event_id": event_id, "days": [], "reason": "No NASA IMERG data cached for this event "
+                "(run scripts/fetch_imerg.py with an Earthdata login)"}
+    start, end = sat[0]["day"], sat[-1]["day"] + timedelta(days=1)
+    era: dict[str, float] = defaultdict(float)
+    for r in history.series(db, ev["lat"], ev["lon"], start, end):
+        era[r["ts"].astimezone(timezone.utc).date().isoformat()] += r["rain"]
+    days = [{"day": s["day"].astimezone(timezone.utc).date().isoformat(), "imerg_mm": round(s["mm"], 1),
+             "era5_mm": round(era.get(s["day"].astimezone(timezone.utc).date().isoformat(), 0.0), 1)} for s in sat]
+    return {"event_id": event_id, "landslide_day": ev["occurred_on"].astimezone(history.IST).date().isoformat(),
+            "days": days, "imerg_cell": [sat[0]["grid_lat"], sat[0]["grid_lon"]], "imerg_source": sat[0]["source"],
+            "era5_source": "ERA5 reanalysis via Open-Meteo (~25 km)", "fetched": datetime.now(timezone.utc).isoformat()}

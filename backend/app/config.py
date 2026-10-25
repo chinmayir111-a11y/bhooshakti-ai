@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     weather_refresh_minutes: int = 30
     # USGS earthquake feed (M4.5+, every 15 min). Off in tests.
     quake_feed_enabled: bool = True
+    # NASA Earthdata login (urs.earthdata.nasa.gov) for GPM IMERG satellite rain.
+    earthdata_user: str = ""
+    earthdata_password: str = ""
 
     # ml
     model_path: str = "ml/artifacts/susceptibility_xgb.joblib"

@@ -170,6 +170,9 @@ class Zone(Base):
     elevation_m: Mapped[float] = mapped_column(Float)
     lithology: Mapped[str] = mapped_column(String(64))
     land_cover: Mapped[str] = mapped_column(String(64))
+    # SIMULATED until scripts/real_terrain.py replaces slope/elevation with
+    # SRTM-based values from the AWS Terrain Tiles DEM.
+    terrain_source: Mapped[str] = mapped_column(String(80), default="SIMULATED", server_default=text("'SIMULATED'"))
     population: Mapped[int] = mapped_column(Integer, default=0)
     area_km2: Mapped[float] = mapped_column(Float, default=0.0)
 
@@ -711,6 +714,23 @@ class Earthquake(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SatelliteRain(Base):
+    """NASA GPM IMERG Final daily rain (0.1°) at a past event's location —
+    a second, independent source next to ERA5 on the replay page."""
+
+    __tablename__ = "satellite_rain"
+    __table_args__ = (UniqueConstraint("event_id", "day", name="uq_satrain_event_day"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("historical_events.id", ondelete="CASCADE"), index=True)
+    day: Mapped[datetime] = mapped_column(DateTime(timezone=True))      # UTC day start
+    mm: Mapped[float] = mapped_column(Float)
+    grid_lat: Mapped[float] = mapped_column(Float)
+    grid_lon: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(64), default="NASA GPM IMERG Final V07 (daily, 0.1°)")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 __all__ = [
     "Role", "Severity", "SensorStatus", "RoadStatus", "ReportStatus", "Verdict",
     "DeliveryStatus", "User", "ZoneAssignment", "AuditLog", "Zone",
@@ -719,5 +739,5 @@ __all__ = [
     "RoadSegment", "Village", "Bridge", "SensorNode", "SensorReading",
     "ZoneRisk", "Alert", "AlertDelivery", "CitizenReport", "FieldReport",
     "ResponseAction", "AlertTier", "EscalationContact", "Subscriber", "Pincode",
-    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading", "Shelter", "Earthquake",
+    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading", "Shelter", "Earthquake", "SatelliteRain",
 ]

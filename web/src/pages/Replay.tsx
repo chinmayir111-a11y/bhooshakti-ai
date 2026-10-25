@@ -22,6 +22,46 @@ function fmt(iso: string, opts: Intl.DateTimeFormatOptions = { day: '2-digit', m
 }
 
 /** Rainfall bars + risk line with the HIGH threshold, cursor and event mark. */
+/** "Two independent sources": daily rain from the weather model (ERA5) and the
+ *  satellite (NASA IMERG) for the event week, landslide day marked. Hidden —
+ *  with the reason in the console — when no IMERG data is cached. */
+function TwoSources({ eventId }: { eventId: number }) {
+  const [d, setD] = useState<any>(null)
+  useEffect(() => {
+    setD(null)
+    api.rainSources(eventId).then((r) => { if (!r.days?.length) console.info('IMERG chart hidden:', r.reason); setD(r) })
+      .catch((e) => console.info('IMERG chart hidden:', e?.message))
+  }, [eventId])
+  if (!d?.days?.length) return null
+  const W = 680, H = 150, L = 34, B = 24, T = 18
+  const n = d.days.length, slot = (W - L - 8) / n, bw = Math.min(16, slot / 3)
+  const max = Math.max(5, ...d.days.flatMap((x: any) => [x.era5_mm, x.imerg_mm]))
+  const y = (v: number) => T + (H - T - B) * (1 - v / max)
+  return (
+    <div className="two-sources">
+      <div className="label">Two independent sources: weather model and satellite</div>
+      <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Daily rain, ERA5 and NASA IMERG">
+        <text x={2} y={T + 4} className="ax">{Math.round(max)} mm</text>
+        <line x1={L} x2={W - 8} y1={H - B} y2={H - B} className="grid" />
+        {d.days.map((x: any, i: number) => {
+          const cx = L + slot * i + slot / 2, slide = x.day === d.landslide_day
+          return (
+            <g key={x.day}>
+              {slide && <rect x={cx - slot / 2 + 1} y={T - 4} width={slot - 2} height={H - B - T + 4} className="slide-day" />}
+              <rect x={cx - bw - 1} y={y(x.era5_mm)} width={bw} height={H - B - y(x.era5_mm)} className="bar-era5" />
+              <rect x={cx + 1} y={y(x.imerg_mm)} width={bw} height={H - B - y(x.imerg_mm)} className="bar-imerg" />
+              <text x={cx} y={H - 8} textAnchor="middle" className="ax">{x.day.slice(8)}{slide ? ' ▲' : ''}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <p className="tiny muted" style={{ margin: '2px 0 0' }}>
+        <span className="legend-key bars" /> ERA5 via Open-Meteo (~25 km) · <span className="legend-key imerg" /> NASA GPM IMERG satellite (0.1° cell {d.imerg_cell?.[0]}, {d.imerg_cell?.[1]}) · daily totals, UTC · ▲ landslide day
+      </p>
+    </div>
+  )
+}
+
 function Chart({ tl, idx }: { tl: ReplayTimeline; idx: number }) {
   const W = 680, H = 210, L = 34, R = 34, T = 14, B = 26
   const hs = tl.hours
@@ -309,6 +349,7 @@ function ReplayPage() {
                   <div>
                     <input type="range" min={0} max={tl.hours.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)) }} style={{ width: '100%', accentColor: 'var(--brand)' }} aria-label="Timeline" />
                     <Chart tl={tl} idx={idx} />
+                    {selected != null && <TwoSources eventId={selected} />}
                     {banner && <div className={`replay-banner ${banner.cls}`}>{banner.cls === 'ok' ? <IconCheck size={18} /> : <IconAlert size={18} />} {banner.text}</div>}
                     <div className="notice tiny" style={{ marginTop: 12 }}>
                       <strong>{ev.title}</strong><br />

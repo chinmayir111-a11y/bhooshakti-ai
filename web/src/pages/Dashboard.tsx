@@ -1035,7 +1035,9 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volun
             <div className="drawer-section">
               <span className="label">Terrain {sources && <Src kind="sim" />}</span>
               <dl className="kv" style={{ marginTop: 8 }}>
-                <dt>Slope</dt><dd>{t.slope_deg}°</dd><dt>Aspect</dt><dd>{t.aspect_deg}°</dd><dt>Elevation</dt><dd>{t.elevation_m} m</dd>
+                <dt>Slope (zone mean)</dt><dd>{t.slope_deg}° {sources && t.terrain_source?.startsWith('REAL') && <Src kind="real" label="REAL · SRTM/AWS terrain" />}</dd>
+                <dt>Aspect</dt><dd>{t.aspect_deg}°</dd>
+                <dt>Elevation (zone mean)</dt><dd>{t.elevation_m} m {sources && t.terrain_source?.startsWith('REAL') && <Src kind="real" label="REAL · SRTM/AWS terrain" />}</dd>
                 <dt>Lithology</dt><dd>{t.lithology.replace(/_/g, ' ')}</dd><dt>Land cover</dt><dd>{t.land_cover.replace(/_/g, ' ')}</dd>
                 <dt>Area</dt><dd>{t.area_km2} km²</dd><dt>Population</dt><dd>{t.population?.toLocaleString()}</dd>
               </dl>

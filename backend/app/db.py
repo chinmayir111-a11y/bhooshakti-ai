@@ -50,6 +50,7 @@ def session_scope() -> Iterator[Session]:
 # applied idempotently at API start-up (and by the test fixtures).
 SCHEMA_ADDITIONS = [
     "ALTER TABLE citizen_reports ADD COLUMN IF NOT EXISTS signs JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE zones ADD COLUMN IF NOT EXISTS terrain_source VARCHAR(80) NOT NULL DEFAULT 'SIMULATED'",
 ]
 
 

@@ -840,3 +840,11 @@ table.grid tr:hover td { background: var(--panel); }
 .alert-item.open { box-shadow: inset 3px 0 0 var(--brand), 0 0 0 2px var(--brand); }
 .kbd-list dt { white-space: nowrap; }
 kbd { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-2); font: 700 12px var(--mono); text-align: center; }
+
+/* ---- replay: ERA5 vs NASA IMERG */
+.two-sources { margin-top: 12px; }
+.two-sources .bar-era5 { fill: #4A90B8; opacity: .8; }
+.two-sources .bar-imerg { fill: #E3B23C; opacity: .9; }
+.two-sources .slide-day { fill: rgba(220,38,38,.12); }
+.two-sources .ax { font-size: 10px; fill: var(--text-muted); }
+.legend-key.imerg { width: 10px; height: 8px; background: #E3B23C; }
