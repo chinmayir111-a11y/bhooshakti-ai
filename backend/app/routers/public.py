@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..notify import templates
-from ..services import spatial
+from ..services import shelters, spatial
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -25,7 +25,8 @@ def _risk(db: Session, zone_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def _answer(db: Session, zone_id: int | None, place: str, lang: str, inside: bool) -> dict:
+def _answer(db: Session, zone_id: int | None, place: str, lang: str, inside: bool,
+            lat: float | None = None, lon: float | None = None) -> dict:
     risk = _risk(db, zone_id) if zone_id else None
     sev = risk["severity"] if risk else None
     active = db.execute(text("""
@@ -52,6 +53,10 @@ def _answer(db: Session, zone_id: int | None, place: str, lang: str, inside: boo
                          "created_at": active["created_at"].isoformat()} if active else None,
         "computed_at": risk["computed_at"].isoformat() if risk and risk["computed_at"] else None,
         "rain_last_hour_mm": round(float(rain), 1) if rain is not None else None,
+        # At HIGH/CRITICAL (or under a WARNING) say where to go, not just that it is dangerous.
+        "shelter": (shelters.nearest(db, lat, lon)
+                    if lat is not None and lon is not None
+                    and (sev in ("HIGH", "CRITICAL") or (active and active["tier"] == "WARNING")) else None),
         "demo_data": True,
     }
 
@@ -67,7 +72,7 @@ def risk_at(lat: float, lon: float, lang: str = "en", db: Session = Depends(get_
         zone_id = db.execute(text("SELECT id FROM zones WHERE code = :c"),
                              {"c": found["zone_code"]}).scalar()
     place = spatial.nearest_place(db, lat, lon)
-    return {**_answer(db, zone_id, place, lang, inside), "distance_km": found.get("distance_km")}
+    return {**_answer(db, zone_id, place, lang, inside, lat, lon), "distance_km": found.get("distance_km")}
 
 
 @router.get("/pincode/{pincode}", summary="Current risk for a pincode")
@@ -77,7 +82,7 @@ def risk_by_pincode(pincode: str, lang: str = "en", db: Session = Depends(get_db
     if row is None:
         raise HTTPException(404, f"Pincode {pincode} is not in the demo districts")
     # lat/lon let the report flow file a report by pincode when GPS is off.
-    return {**_answer(db, row["zone_id"], row["place"], lang, row["zone_id"] is not None),
+    return {**_answer(db, row["zone_id"], row["place"], lang, row["zone_id"] is not None, row["lat"], row["lon"]),
             "pincode": pincode, "lat": row["lat"], "lon": row["lon"]}
 
 

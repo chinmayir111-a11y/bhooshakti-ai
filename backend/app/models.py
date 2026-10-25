@@ -671,6 +671,28 @@ class VolunteerRainReading(Base):
     source: Mapped[str] = mapped_column(String(32), default="volunteer gauge")
 
 
+class Shelter(Base):
+    """A building people can go to: school, community hall, hospital. Imported
+    once from OpenStreetMap (scripts/import_shelters.py). An officer can mark
+    one unsafe (e.g. it stands on the moving slope) and it is never suggested."""
+
+    __tablename__ = "shelters"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    osm_id: Mapped[str] = mapped_column(String(32), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(32), default="")            # school | community_centre | hospital ...
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=True))
+    zone_id: Mapped[int | None] = mapped_column(ForeignKey("zones.id", ondelete="SET NULL"), nullable=True, index=True)
+    unsafe: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    unsafe_note: Mapped[str] = mapped_column(String(300), default="", server_default=text("''"))
+    unsafe_by: Mapped[str] = mapped_column(String(64), default="", server_default=text("''"))
+    source: Mapped[str] = mapped_column(String(32), default="OpenStreetMap")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 __all__ = [
     "Role", "Severity", "SensorStatus", "RoadStatus", "ReportStatus", "Verdict",
     "DeliveryStatus", "User", "ZoneAssignment", "AuditLog", "Zone",
@@ -679,5 +701,5 @@ __all__ = [
     "RoadSegment", "Village", "Bridge", "SensorNode", "SensorReading",
     "ZoneRisk", "Alert", "AlertDelivery", "CitizenReport", "FieldReport",
     "ResponseAction", "AlertTier", "EscalationContact", "Subscriber", "Pincode",
-    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading",
+    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading", "Shelter",
 ]

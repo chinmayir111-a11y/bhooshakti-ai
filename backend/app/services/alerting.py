@@ -67,6 +67,12 @@ def issue(db: Session, *, zone: Zone, tier: str, severity: Severity, risk_score:
     """Create, dispatch and broadcast one alert. Commits."""
     roads = spatial.roads_intersecting_zone(db, zone.id)
     villages = spatial.villages_in_zone(db, zone.id)
+    # Danger messages say where to go: the nearest shelter not marked unsafe.
+    shelter = None
+    if kind != "all_clear" and (tier == AlertTier.WARNING.value or severity.value in ("HIGH", "CRITICAL")):
+        from .shelters import for_zone
+        found = for_zone(db, zone.id)
+        shelter = f"{found['name']} ({found['kind_label']})" if found else None
 
     def payload_for(lang: str) -> AlertPayload:
         p = AlertPayload(
@@ -76,7 +82,7 @@ def issue(db: Session, *, zone: Zone, tier: str, severity: Severity, risk_score:
             language=lang, deep_link=f"{settings.public_dashboard_url}/control?zone={zone.id}",
             affected_roads=[r["name"] for r in roads[:4]],
             affected_villages=[v["name"] for v in villages[:6]],
-            source=source, tier=tier, kind=kind, place=place,
+            source=source, tier=tier, kind=kind, place=place, shelter=shelter or "",
         )
         p.title = templates.subject(p)
         p.message = templates.plain_text(p)

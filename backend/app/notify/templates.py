@@ -57,6 +57,19 @@ REPORT_TEXT = {
     },
 }
 
+# Where to go, appended to danger messages that carry a shelter (alerting.issue).
+SAFE_PLACE = {
+    "en": "Safe place: {s}.", "hi": "सुरक्षित स्थान: {s}।", "as": "সুৰক্ষিত ঠাই: {s}।",
+    "bn": "নিরাপদ স্থান: {s}।", "ne": "सुरक्षित स्थान: {s}।",
+}
+
+
+def safe_place_line(payload: AlertPayload) -> str:
+    if not payload.shelter or payload.kind in ("all_clear", "moderator"):
+        return ""
+    return SAFE_PLACE.get(lang_of(payload), SAFE_PLACE["en"]).format(s=payload.shelter)
+
+
 DEMO_PREFIX = {"en": "[DEMO]", "hi": "[डेमो]", "as": "[ডেমো]", "bn": "[ডেমো]", "ne": "[डेमो]"}
 
 _SUBJECT = {
@@ -176,6 +189,8 @@ def plain_text(payload: AlertPayload) -> str:
         lines += ["", f"{L['roads']}: " + "; ".join(payload.affected_roads)]
     if payload.affected_villages:
         lines += [f"{L['villages']}: " + "; ".join(payload.affected_villages)]
+    if payload.shelter and payload.kind not in ("all_clear", "moderator"):
+        lines += [f"Nearest safe place (OpenStreetMap): {payload.shelter}"]
     lines += [
         "",
         f"{L['advice']}: {L['advice_text']}",
@@ -197,22 +212,25 @@ def sms_text(payload: AlertPayload) -> str:
         tier = TIER_WORDS[lang].get(payload.tier, payload.tier)
         label = "ALL CLEAR" if payload.kind == "all_clear" else tier
         line = report_line(payload.kind, payload.place or payload.zone_name, payload.language)
-        return f"BHOOSHAKTI {DEMO_PREFIX.get(lang, '[DEMO]')} {label}: {line}"[:320]
+        where = safe_place_line(payload)
+        return f"BHOOSHAKTI {DEMO_PREFIX.get(lang, '[DEMO]')} {label}: {line}{' ' + where if where else ''}"[:320]
     sev = SEVERITY_WORDS[lang].get(payload.severity, payload.severity)
     top = payload.factor_lines[0] if payload.factor_lines else ""
     tier = TIER_WORDS[lang].get(payload.tier, payload.tier)
     body = (f"BHOOSHAKTI AI [DEMO] {tier} {sev} landslide risk: {payload.zone_name}, "
             f"{payload.district}. Score {payload.risk_score:.0f}/100, "
-            f"confidence {payload.confidence * 100:.0f}%. {top}. {payload.deep_link}")
+            f"confidence {payload.confidence * 100:.0f}%. {top}. "
+            + (safe_place_line(payload) + " " if payload.shelter else "") + payload.deep_link)
     return body[:320]
 
 
 def voice_text(payload: AlertPayload) -> str:
     """What a text-to-speech call reads aloud: short, no numbers to parse."""
+    where = safe_place_line(payload)
     if payload.kind in REPORT_TEXT:
-        return report_line(payload.kind, payload.place or payload.zone_name, payload.language)
+        return f"{report_line(payload.kind, payload.place or payload.zone_name, payload.language)} {where}".strip()
     lang = lang_of(payload)
-    return f"{TIER_WORDS[lang].get(payload.tier, payload.tier)}. {headline(payload)}"
+    return f"{TIER_WORDS[lang].get(payload.tier, payload.tier)}. {headline(payload)} {where}".strip()
 
 
 def safety_line(severity: str | None, place: str, language: str = "en") -> str:

@@ -44,7 +44,7 @@ DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
 .PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 \
+        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters \
         train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
@@ -150,6 +150,9 @@ import-landslides: ## Import REAL NE-India landslides (NASA GLC) + cache their E
 
 train: ## Train the model on the real events (hold out the most recent year)
 	@cd backend && .venv/bin/python scripts/train.py
+
+shelters: ## One-off: import schools, halls and hospitals near each zone from OpenStreetMap
+	@cd backend && .venv/bin/python scripts/import_shelters.py
 
 backtest: ## Replay held-out real landslides; writes ml/artifacts/backtest_results.json
 	@cd backend && .venv/bin/python scripts/backtest.py

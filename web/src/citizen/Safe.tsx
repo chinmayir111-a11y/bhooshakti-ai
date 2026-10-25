@@ -1,6 +1,6 @@
 /** "Is it safe near me?" — one breathing traffic-light circle, a pictogram, a spoken line. */
 import { useEffect, useState } from 'react'
-import { api, type PublicRisk, type Severity } from '../api/client'
+import { api, type PublicRisk, type Severity, type Shelter } from '../api/client'
 import { IconAlert, IconArrow, IconRefresh, PictoEvacuate, PictoLandslide, PictoShield } from '../components/Pictograms'
 import { SeverityShape } from '../components/Severity'
 import { useOnline } from '../hooks'
@@ -36,8 +36,9 @@ export default function CitizenSafe() {
     : risk.active_alert?.tier === 'ADVISORY' ? `${t('safe_advisory')} ${sev ? t(`line_${sev}`) : ''}`
     : sev ? t(`line_${sev}`) : t('safe_unknown')
 
-  // Say it out loud as soon as we know — the point of this screen.
-  useEffect(() => { if (state === 'ok' && line) speak(`${word}. ${line}`, lang) }, [state, line, word, lang])
+  const goLine = risk?.shelter ? shelterLine(risk.shelter, t) : ''
+  // Say it out loud as soon as we know — the point of this screen — and where to go.
+  useEffect(() => { if (state === 'ok' && line) speak(`${word}. ${line} ${goLine}`, lang) }, [state, line, word, lang, goLine])
 
   const Picto = sev === 'CRITICAL' || risk?.active_alert?.tier === 'WARNING' ? PictoEvacuate
     : sev === 'HIGH' ? PictoLandslide : PictoShield
@@ -64,6 +65,7 @@ export default function CitizenSafe() {
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
               <Speak text={`${word}. ${line}`} lang={lang} dark label={t('tap_to_hear')} />
             </div>
+            {risk.shelter && <ShelterCard s={risk.shelter} line={goLine} />}
             <p className="light-meta">
               {risk.place}{risk.zone_name && risk.zone_name !== risk.place ? ` · ${risk.zone_name}` : ''}
               {!risk.inside_zone && <><br />{t('safe_outside')}</>}
@@ -87,5 +89,40 @@ export default function CitizenSafe() {
         </form>
       </div>
     </Shell>
+  )
+}
+
+/** "Go to Government School Tindharia, 800 metres north-east." in the chosen language. */
+function shelterLine(s: Shelter, t: (k: string) => string): string {
+  const dist = s.distance_m < 1000 ? `${s.distance_m} ${t('unit_m')}` : `${(s.distance_m / 1000).toFixed(1)} ${t('unit_km')}`
+  return t('shelter_go').replace('{name}', s.name).replace('{dist}', dist).replace('{dir}', t(`dir_${s.direction.replace('-', '_')}`))
+}
+
+/** Where to go: name, distance, an arrow pointing that way on a compass, and
+ *  the phone's own maps app for the route. */
+function ShelterCard({ s, line }: { s: Shelter; line: string }) {
+  const [lang, , t] = useLang()
+  const ios = /iPhone|iPad/.test(navigator.userAgent)
+  const href = ios ? `https://maps.apple.com/?daddr=${s.lat},${s.lon}&q=${encodeURIComponent(s.name)}`
+    : `geo:${s.lat},${s.lon}?q=${s.lat},${s.lon}(${encodeURIComponent(s.name)})`
+  return (
+    <div className="shelter-card" role="status">
+      <div className="shelter-compass" aria-hidden="true">
+        <span className="shelter-n">N</span>
+        <svg viewBox="0 0 48 48" width="56" height="56" style={{ transform: `rotate(${s.bearing_deg}deg)` }}>
+          <path d="M24 5 L35 34 L24 28 L13 34 Z" fill="currentColor" />
+        </svg>
+      </div>
+      <div className="shelter-text">
+        <span className="shelter-title">{t('shelter_title')}</span>
+        <strong>{s.name}</strong>
+        <span>{line}</span>
+      </div>
+      <div className="shelter-actions">
+        <Speak text={line} lang={lang} dark />
+        <a className="cz-linkbtn" href={href}>{t('shelter_open_maps')}</a>
+      </div>
+      <p className="shelter-src">{t('shelter_source')}</p>
+    </div>
   )
 }

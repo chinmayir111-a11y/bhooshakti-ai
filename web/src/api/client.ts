@@ -104,6 +104,13 @@ export interface PublicRisk {
   computed_at: string | null; distance_km?: number | null
   pincode?: string; lat?: number; lon?: number
   rain_last_hour_mm?: number | null
+  /** Nearest shelter not marked unsafe — only at HIGH / CRITICAL / under a WARNING. */
+  shelter?: Shelter | null
+}
+
+export interface Shelter {
+  id: number; name: string; kind: string; kind_label: string; lat: number; lon: number
+  distance_m: number; bearing_deg: number; direction: string; source: string
 }
 
 export interface ReplayEvent {
@@ -232,6 +239,7 @@ export const api = {
     request<CitizenReport[]>(`/reports${status ? `?status=${status}` : ''}`),
   escalations: (includeChecking = false) => request<CitizenReport[]>(`/reports/escalations${includeChecking ? '?include_checking=true' : ''}`),
   volunteers: () => request<Volunteer[]>('/volunteers'),
+  markShelter: (id: number, unsafe: boolean, note = '') => post(`/shelters/${id}/unsafe`, { unsafe, note }),
   volunteerReading: (body: Record<string, unknown>) => post('/volunteers/reading', body),
   createReport: (body: Record<string, unknown>) => post('/reports', { device_id: deviceId(), ...body }),
   moderate: (id: number, decision: string, notes: string) => post(`/reports/${id}/moderate`, { decision, notes }),

@@ -33,6 +33,7 @@ class AlertPayload:
     # risk | advisory | confirmed | all_clear — selects the wording.
     kind: str = "risk"
     place: str = ""          # "near X" for report-driven messages
+    shelter: str = ""        # nearest safe place, named in danger SMS / voice / email
 
     @property
     def factor_lines(self) -> list[str]:

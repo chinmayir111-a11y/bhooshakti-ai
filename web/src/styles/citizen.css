@@ -362,3 +362,19 @@
 .gauge-result.lv-alert { background: var(--sev-critical); border-color: var(--sev-critical); color: var(--sev-critical-fg); }
 .gauge-result.lv-queued, .gauge-result.lv-unregistered { border-color: var(--line-strong); }
 .linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--brand-ink); text-decoration: underline; cursor: pointer; }
+
+/* ---- nearest safe place on "Is it safe?" (HIGH / CRITICAL) */
+.shelter-card {
+  margin: 16px 0 4px; padding: 14px; border-radius: var(--radius); background: var(--surface); border: 2px solid var(--sev-low-ink);
+  display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; align-items: center; text-align: left;
+}
+.shelter-compass { position: relative; width: 64px; height: 64px; border-radius: 50%; background: var(--surface-2); color: var(--sev-low-ink); display: grid; place-items: center; }
+.shelter-compass svg { transition: transform .4s var(--ease); }
+.shelter-n { position: absolute; top: 2px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 800; color: var(--text-muted); }
+.shelter-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.shelter-title { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sev-low-ink); }
+.shelter-text strong { font-size: 18px; line-height: 1.25; color: var(--text); }
+.shelter-text span:last-child { font-size: 15px; color: var(--text-muted); }
+.shelter-actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
+.shelter-actions .cz-linkbtn { flex: 1 1 auto; margin: 0; }
+.shelter-src { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--text-faint); }

@@ -30,7 +30,7 @@ from ..ws import (
 from ml.features import FeatureRow, build_frame
 from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse
 from ml.rainfall_trend import forecast_24h, seasonal_normal_72h, window_totals
-from . import spatial, volunteers
+from . import shelters, spatial, volunteers
 
 log = logging.getLogger("bhooshakti.risk")
 
@@ -570,6 +570,7 @@ def zone_detail(db: Session, zone: Zone, sparkline_hours: int = 72) -> dict[str,
         "risk": risk,
         "sparkline": spark,
         "volunteer_gauge": volunteers.zone_readings(db, zone.id, sparkline_hours),
+        "shelters": shelters.in_zone(db, zone.id),
         "roads": spatial.roads_intersecting_zone(db, zone.id),
         "villages": spatial.villages_in_zone(db, zone.id),
         "bridges": spatial.bridges_in_zone(db, zone.id),

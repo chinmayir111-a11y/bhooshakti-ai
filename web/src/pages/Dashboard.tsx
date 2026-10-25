@@ -645,6 +645,44 @@ const WHAT_TO_DO: Record<Severity, string> = {
   CRITICAL: 'Act now: move people away from the slope, close the road, confirm the warning so sirens and SMS go out.',
 }
 
+/** Safe places near the zone (OpenStreetMap). An officer can mark one unsafe —
+ *  it is on the slope, flooded, locked — and it is never suggested to anyone. */
+function ShelterList({ shelters }: { shelters: any[] }) {
+  const { sources } = useControl()
+  const user = getUser()
+  const [marks, setMarks] = useState<Record<number, boolean>>({})
+  const [busy, setBusy] = useState<number | null>(null)
+  const [err, setErr] = useState('')
+  async function toggle(s: any, unsafe: boolean) {
+    setBusy(s.id); setErr('')
+    try { await api.markShelter(s.id, unsafe); setMarks((m) => ({ ...m, [s.id]: unsafe })) }
+    catch (e: any) { setErr(`Not saved: ${e?.message ?? 'error'}`) }
+    finally { setBusy(null) }
+  }
+  return (
+    <div className="drawer-section">
+      <span className="label">Safe places ({shelters.length}) {sources && <Src kind="real" label="REAL · OpenStreetMap" />}</span>
+      {shelters.length === 0 && <p className="muted tiny">No schools, halls or hospitals mapped within 3 km.</p>}
+      {shelters.slice(0, 12).map((s) => {
+        const unsafe = marks[s.id] ?? s.unsafe
+        return (
+          <div key={s.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)', gap: 8 }}>
+            <span style={{ flex: '1 1 auto', minWidth: 0, textDecoration: unsafe ? 'line-through' : 'none', opacity: unsafe ? 0.6 : 1 }}>
+              {s.name}<span className="tiny muted"> · {s.kind_label}{s.inside_zone ? ' · inside zone' : ''}</span>
+            </span>
+            {user?.role === 'authority'
+              ? <button className="btn ghost sm" disabled={busy !== null} onClick={() => toggle(s, !unsafe)}>
+                  {busy === s.id && <span className="spinner" />}{unsafe ? 'Mark safe' : 'Mark unsafe'}
+                </button>
+              : unsafe && <span className="pill on">UNSAFE</span>}
+          </div>
+        )
+      })}
+      {err && <p className="notice tiny" role="alert">{err}</p>}
+    </div>
+  )
+}
+
 function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volunteers }: {
   detail: any; weather: WeatherStatus | null; provenance: ZoneProvenance | null; onClose: () => void
   more: boolean; setMore: (v: boolean) => void; volunteers: Volunteer[]
@@ -766,6 +804,8 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volun
                 </div>
               ))}
             </div>
+
+            <ShelterList shelters={detail.shelters ?? []} />
 
             <div className="drawer-section">
               <span className="label">Village volunteers ({volunteers.length})</span>
