@@ -54,6 +54,14 @@ export interface EscalationState {
   acknowledged_at: string | null; acknowledged_by: string
 }
 
+/** Gaon Prahari village volunteer, with the last gauge reading (backend services/volunteers.py). */
+export interface Volunteer {
+  id: number; name: string; phone_last4: string; zone_id: number; zone_name: string | null
+  place: string; lat: number; lon: number; safe_place: string; simulated: boolean
+  last_mm: number | null; last_at: string | null; total_24h: number
+  level: 'none' | 'watch' | 'alert'; raining: boolean; stale: boolean
+}
+
 export interface CitizenReport {
   id: number; issue_type: string; issue_label: string; description: string
   photo_path: string; voice_note_path: string; lat: number; lon: number; phone: string; language: string
@@ -223,6 +231,8 @@ export const api = {
   reports: (status?: string) =>
     request<CitizenReport[]>(`/reports${status ? `?status=${status}` : ''}`),
   escalations: (includeChecking = false) => request<CitizenReport[]>(`/reports/escalations${includeChecking ? '?include_checking=true' : ''}`),
+  volunteers: () => request<Volunteer[]>('/volunteers'),
+  volunteerReading: (body: Record<string, unknown>) => post('/volunteers/reading', body),
   createReport: (body: Record<string, unknown>) => post('/reports', { device_id: deviceId(), ...body }),
   moderate: (id: number, decision: string, notes: string) => post(`/reports/${id}/moderate`, { decision, notes }),
   acknowledgeReport: (id: number) => post(`/reports/${id}/acknowledge`),

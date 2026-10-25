@@ -798,3 +798,14 @@ table.grid tr:hover td { background: var(--panel); }
 /* ---- villager warning signs on a report card */
 .esc-signs { display: flex; gap: 4px; margin-top: 6px; }
 .esc-signs span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--surface-2); color: var(--earth); }
+
+/* ---- village gauge strip under the zone rain chart */
+.gauge-strip { display: block; width: 100%; height: 26px; margin-top: 2px; }
+.gauge-strip .gauge-axis { stroke: var(--line); stroke-width: 1; }
+.gauge-strip .gauge-dot circle { fill: var(--earth); stroke: var(--surface); stroke-width: 1.5; }
+.gauge-strip .gauge-dot.lv-watch circle { fill: var(--sev-high); }
+.gauge-strip .gauge-dot.lv-alert circle { fill: var(--sev-critical); }
+.gauge-strip text { font-size: 9.5px; font-weight: 700; fill: var(--text-muted); }
+.legend-key { display: inline-block; vertical-align: middle; margin-right: 3px; }
+.legend-key.bars { width: 10px; height: 8px; background: #4A90B8; opacity: .75; }
+.legend-key.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--earth); }

@@ -140,6 +140,7 @@ db: ## Create the database, role and PostGIS extension
 
 seed: ## Rebuild the schema and load data (fetches real weather)
 	@cd backend && .venv/bin/python scripts/seed.py --reset
+	@cd backend && .venv/bin/python scripts/seed_volunteers.py
 
 weather: ## Refresh the cached Open-Meteo weather
 	@cd backend && .venv/bin/python scripts/fetch_weather.py

@@ -38,7 +38,13 @@ export interface Pin {
 export interface Pulse { lon: number; lat: number; at: number; big?: boolean; color?: [number, number, number] }
 export interface ReportPoint { id: number; lat: number; lon: number; label?: string }
 export interface View { lon: number; lat: number; zoom?: number }
-export interface Layers3D { zones: boolean; reports: boolean; sensors: boolean; rain: boolean; roads: boolean }
+export interface Layers3D { zones: boolean; reports: boolean; sensors: boolean; rain: boolean; roads: boolean; volunteers: boolean }
+
+/** Gaon Prahari village volunteer with their last rain-gauge reading. */
+export interface VolunteerPoint {
+  id: number; lon: number; lat: number; name: string; place: string; simulated?: boolean
+  last_mm: number | null; ago: string; total_24h: number; level: 'none' | 'watch' | 'alert'; stale: boolean
+}
 
 interface Props {
   zones?: any
@@ -49,6 +55,7 @@ interface Props {
   /** Replay: mm of rain this hour → light falling particles over the event area. */
   rainParticles?: number
   pins?: Pin[]
+  volunteers?: VolunteerPoint[]
   pulses?: Pulse[]
   layers?: Partial<Layers3D>
   selectedZoneId?: number | null
@@ -278,6 +285,7 @@ function ourSources(): Record<string, any> {
     sensors: { type: 'geojson', data: EMPTY },
     reports: { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 40, clusterMaxZoom: 13 },
     marker: { type: 'geojson', data: EMPTY },
+    volunteers: { type: 'geojson', data: EMPTY },
   }
 }
 
@@ -322,6 +330,15 @@ function ourLayers(satellite: boolean, dark: boolean): any[] {
     { id: 'sensors', type: 'symbol', source: 'sensors', minzoom: 10,
       layout: { 'icon-image': ['case', ['boolean', ['get', 'live'], false], 'sensor-live', 'sensor-sim'],
                 'icon-size': 0.75, 'icon-allow-overlap': true } },
+    // Village volunteers (Gaon Prahari): a person; grey when their gauge has gone
+    // quiet in the rain, red ring at ALERT. Name and last reading from zoom 10.
+    { id: 'volunteers', type: 'symbol', source: 'volunteers', minzoom: 8,
+      layout: { 'icon-image': ['case', ['boolean', ['get', 'stale'], false], 'volunteer-stale',
+                               ['==', ['get', 'level'], 'alert'], 'volunteer-alert', 'volunteer'],
+                'icon-allow-overlap': true, 'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 10, ['get', 'label']], 'text-font': FONT, 'text-size': 11,
+                'text-anchor': 'top', 'text-offset': [0, 1.1], 'text-optional': true },
+      paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#0F1A17', 'text-halo-width': 1.4 } },
     { id: 'reports-clusters', type: 'circle', source: 'reports', filter: ['has', 'point_count'],
       paint: { 'circle-color': '#DC2626', 'circle-radius': ['step', ['get', 'point_count'], 13, 5, 16, 10, 20], 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } },
     { id: 'reports-count', type: 'symbol', source: 'reports', filter: ['has', 'point_count'],
@@ -416,6 +433,17 @@ function addIcons(m: MLMap) {
     c.beginPath(); c.moveTo(x, y); c.lineTo(x + w / 2, 3); c.lineTo(x + w, y); c.lineTo(x + w, y + hgt); c.lineTo(x, y + hgt); c.closePath()
     c.fillStyle = fill; c.fill(); c.lineWidth = 1.5; c.strokeStyle = stroke; c.stroke()
   }
+  const person = (fill: string, ring: string | null) => makeIcon(26, (c, s) => {
+    const h = s / 2
+    c.beginPath(); c.arc(h, h, 11.5, 0, Math.PI * 2); c.fillStyle = '#0F1A17'; c.fill()
+    c.lineWidth = ring ? 2.5 : 1.5; c.strokeStyle = ring ?? fill; c.stroke()
+    c.fillStyle = fill
+    c.beginPath(); c.arc(h, h - 4, 3.6, 0, Math.PI * 2); c.fill()                              // head
+    c.beginPath(); c.moveTo(h - 6, h + 7); c.quadraticCurveTo(h, h - 3, h + 6, h + 7); c.closePath(); c.fill()  // shoulders
+  })
+  icons.volunteer = person('#7FD1AE', null)
+  icons['volunteer-stale'] = person('#7A8580', null)
+  icons['volunteer-alert'] = person('#FFFFFF', '#F87171')
   icons.pin = (() => {
     const cv = document.createElement('canvas'); cv.width = 36; cv.height = 46
     const c = cv.getContext('2d')!
@@ -457,6 +485,16 @@ function sensorHtml(q: any): string {
   return `<strong>Sensor ${esc(q.node)}</strong> ${state}`
     + `<div class="tip-row">Tilt ${num(q.tilt, '°')} · Soil ${num(q.soil, '%')}</div>`
     + `<div class="tip-row muted">${esc(q.seen || (q.live ? 'live hardware' : 'simulated node'))}</div>`
+}
+
+function volunteerHtml(q: any): string {
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+  const lv = q.level === 'alert' ? '<span class="tip-sev CRITICAL">ALERT</span>' : q.level === 'watch' ? '<span class="tip-sev HIGH">WATCH</span>' : ''
+  const last = q.last_mm == null || q.last_mm === 'null' ? 'no reading yet' : `last ${Number(q.last_mm).toFixed(0)} mm · ${esc(q.ago)}`
+  return `<strong>${esc(q.name)}</strong> ${lv}${q.simulated ? ' <span class="tip-sev">SIMULATED</span>' : ''}`
+    + `<div class="tip-row">Village gauge at ${esc(q.place)}</div>`
+    + `<div class="tip-row">${Number(q.total_24h).toFixed(0)} mm in 24 h · ${last}</div>`
+    + (q.stale ? '<div class="tip-row muted">No reading for 12 h while it is raining — call the volunteer</div>' : '')
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -602,7 +640,7 @@ export default function Map3D(p: Props) {
     // One click handler, most specific first: a report cluster zooms in, a
     // report dot opens its card, a sensor shows its readings, a zone opens
     // its drawer. A small box around the pointer makes dots easy to hit.
-    const CLICKABLE = ['reports-clusters', 'reports', 'sensors', 'zone-circle', 'zone-fill']
+    const CLICKABLE = ['reports-clusters', 'reports', 'sensors', 'volunteers', 'zone-circle', 'zone-fill']
     const hit = (pt: maplibregl.Point) => {
       if (!ready.current) return undefined
       const layers = CLICKABLE.filter((id) => m.getLayer(id) && m.getLayoutProperty(id, 'visibility') !== 'none')
@@ -625,6 +663,9 @@ export default function Map3D(p: Props) {
       } else if (f.layer.id === 'sensors') {
         popup.remove()
         sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(sensorHtml(q)).addTo(m)
+      } else if (f.layer.id === 'volunteers') {
+        popup.remove()
+        sensorTip.setLngLat((f.geometry as any).coordinates).setHTML(volunteerHtml(q)).addTo(m)
       } else if (select.current) {
         select.current(Number(q.id))
       }
@@ -737,6 +778,10 @@ export default function Map3D(p: Props) {
       geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) })
     ;(m.getSource('reports') as any)?.setData({ type: 'FeatureCollection', features: (props.current.reports ?? []).map((r) => ({
       type: 'Feature', properties: { id: r.id, label: r.label }, geometry: { type: 'Point', coordinates: [r.lon, r.lat] } })) })
+    ;(m.getSource('volunteers') as any)?.setData({ type: 'FeatureCollection', features: (props.current.volunteers ?? []).map((v) => ({
+      type: 'Feature',
+      properties: { ...v, label: `${v.name} · ${v.last_mm == null ? 'no reading' : `${v.last_mm.toFixed(0)} mm ${v.ago}`}` },
+      geometry: { type: 'Point', coordinates: [v.lon, v.lat] } })) })
   }
 
   // Rain radar: isobands over a box around the points, tweened from the
@@ -773,11 +818,12 @@ export default function Map3D(p: Props) {
   function syncVisibility() {
     const m = map.current
     if (!m || !ready.current) return
-    const L = { zones: true, reports: true, sensors: true, rain: true, roads: true, ...(props.current.layers ?? {}) }
+    const L = { zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true, ...(props.current.layers ?? {}) }
     const vis = (ids: string[], on: boolean) => ids.forEach((id) => { try { m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none') } catch { /* missing */ } })
     vis(['zone-fill', 'zone-glow-high', 'zone-glow-critical', 'zone-line', 'zone-labels', 'zone-circle', 'zone-pulse-HIGH', 'zone-pulse-CRITICAL', 'zone-circle-label'], L.zones)
     vis(['reports', 'reports-clusters', 'reports-count'], L.reports)
     vis(['sensors'], L.sensors)
+    vis(['volunteers'], L.volunteers)
     vis(['rain-radar', 'rain-chips'], L.rain)
     vis(['zone-knockout'], L.rain && L.zones)
     vis(['roads', 'road-blocks', 'villages'], L.roads)
@@ -886,7 +932,7 @@ export default function Map3D(p: Props) {
 
   useEffect(() => { syncZones() }, [p.zones, p.selectedZoneId])          // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncRoads() }, [p.roads])                             // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports])      // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { syncPoints() }, [p.villages, p.pins, p.reports, p.volunteers])      // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncVisibility(); syncDeck() }, [p.layers?.zones, p.layers?.reports, p.layers?.sensors, p.layers?.rain, p.layers?.roads])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (ready.current) syncDeck() }, [p.pulses, p.rainParticles])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncRain() }, [p.rain])

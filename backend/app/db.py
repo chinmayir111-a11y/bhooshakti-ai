@@ -55,6 +55,9 @@ SCHEMA_ADDITIONS = [
 
 def ensure_schema_additions() -> None:
     from sqlalchemy import text
+
+    from . import models  # noqa: F401  (registers every table on Base)
+    Base.metadata.create_all(bind=engine)          # new tables only; never alters
     with engine.begin() as conn:
         for stmt in SCHEMA_ADDITIONS:
             conn.execute(text(stmt))

@@ -25,7 +25,7 @@ from ..deps import Principal, audit
 from ..models import Subscriber, Zone
 from ..notify import templates
 from ..notify.channels import VOICE_LOCALE, SmsChannel, VoiceChannel
-from ..services import sms_keywords, spatial
+from ..services import sms_keywords, spatial, volunteers
 from ..services.media import save_audio, save_audio_bytes
 from . import reports
 
@@ -93,6 +93,17 @@ def handle_sms(db: Session, sender: str, body: str) -> str:
         reply = sms_keywords.HELP_TEXT
     elif cmd.intent == "unknown":
         reply = "Sorry, not understood. " + sms_keywords.HELP_TEXT
+    elif cmd.intent == "rain":
+        v = volunteers.by_phone(db, sender)
+        if v is None:
+            reply = ("BHOOSHAKTI [DEMO]: this number is not registered as a village volunteer. "
+                     "Ask your block officer to register you.")
+        elif cmd.mm is None:
+            reply = "BHOOSHAKTI [DEMO]: send R and the mm in your rain gauge, e.g. R 45."
+        else:
+            out = volunteers.record(db, v, cmd.mm, channel="sms")
+            reply = out["reply"]
+            detail.update({"volunteer_id": v.id, "level": out["level"]})
     elif cmd.intent == "stop":
         n = db.query(Subscriber).filter(Subscriber.phone == sender, Subscriber.active.is_(True)) \
               .update({Subscriber.active: False})

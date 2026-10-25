@@ -632,6 +632,45 @@ class ResponseAction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Volunteer(Base):
+    """Gaon Prahari: a trained villager registered by an officer to one zone,
+    who reads a manual rain gauge and texts the reading (`R 45`). Modelled on
+    GSI's Darjeeling community pilot (gauge + threshold chart + whistle)."""
+
+    __tablename__ = "volunteers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id", ondelete="CASCADE"), index=True)
+    place: Mapped[str] = mapped_column(String(120), default="")          # where the gauge stands
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    safe_place: Mapped[str] = mapped_column(String(160), default="")     # where the village goes on ALERT
+    registered_by: Mapped[str] = mapped_column(String(64), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    simulated: Mapped[bool] = mapped_column(Boolean, default=False)     # seeded demo volunteer
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VolunteerRainReading(Base):
+    """One manual gauge reading: mm since the volunteer's previous reading."""
+
+    __tablename__ = "volunteer_rain_readings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    volunteer_id: Mapped[int] = mapped_column(ForeignKey("volunteers.id", ondelete="CASCADE"), index=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id", ondelete="CASCADE"), index=True)
+    mm: Mapped[float] = mapped_column(Float)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    channel: Mapped[str] = mapped_column(String(16), default="sms")       # sms | app | app-offline
+    client_uuid: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    total_24h: Mapped[float] = mapped_column(Float, default=0.0)
+    level: Mapped[str] = mapped_column(String(8), default="none")        # none | watch | alert
+    source: Mapped[str] = mapped_column(String(32), default="volunteer gauge")
+
+
 __all__ = [
     "Role", "Severity", "SensorStatus", "RoadStatus", "ReportStatus", "Verdict",
     "DeliveryStatus", "User", "ZoneAssignment", "AuditLog", "Zone",
@@ -640,5 +679,5 @@ __all__ = [
     "RoadSegment", "Village", "Bridge", "SensorNode", "SensorReading",
     "ZoneRisk", "Alert", "AlertDelivery", "CitizenReport", "FieldReport",
     "ResponseAction", "AlertTier", "EscalationContact", "Subscriber", "Pincode",
-    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid",
+    "HistoricalEvent", "HistoricalWeather", "ZoneWeatherGrid", "Volunteer", "VolunteerRainReading",
 ]

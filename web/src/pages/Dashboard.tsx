@@ -8,13 +8,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
-import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View } from '../components/Map3D'
+import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View, type VolunteerPoint } from '../components/Map3D'
 import {
-  DeliveryChips, FactorList, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
+  DeliveryChips, FactorList, GaugeStrip, SeverityChip, Sparkline, Src, TierChip, fmtTime, timeAgo,
 } from '../components/common'
 import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
 import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay, SIGN_PICTOS, type SignKey } from '../components/Pictograms'
-import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type WeatherStatus, type ZoneProvenance } from '../api/client'
+import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type Volunteer, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
 import { useControl } from '../control/context'
@@ -38,7 +38,7 @@ function slowConnection(): boolean {
 }
 
 const LAYER_LABELS: Array<[keyof Layers3D, string]> = [
-  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain'], ['roads', 'Roads & villages'],
+  ['zones', 'Zones'], ['reports', 'Reports'], ['sensors', 'Sensors'], ['rain', 'Rain'], ['roads', 'Roads & villages'], ['volunteers', 'Village volunteers'],
 ]
 
 function Counter({ value, label, tint, src, srcKind }: { value: number; label: string; tint?: string; src?: string; srcKind?: 'real' | 'live' | 'sim' }) {
@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [zones, setZones] = useState<any>(null)
   const [infrastructure, setInfrastructure] = useState<any>(null)
   const [sensors, setSensors] = useState<any>(null)
+  const [volunteers, setVolunteers] = useState<Volunteer[]>([])
   const [historical, setHistorical] = useState<any>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [weather, setWeather] = useState<WeatherStatus | null>(null)
@@ -100,9 +101,9 @@ export default function Dashboard() {
   const [layersOpen, setLayersOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
   const [resetSignal, setResetSignal] = useState(0)
-  const [layers, setLayers] = useState<Layers3D>({ zones: true, reports: true, sensors: true, rain: true, roads: true })
+  const [layers, setLayers] = useState<Layers3D>({ zones: true, reports: true, sensors: true, rain: true, roads: true, volunteers: true })
   // The 2D map keeps its own layer names.
-  const layers2d: Layers = { risk: layers.zones, roads: layers.roads, villages: layers.roads, sensors: layers.sensors, historical: false }
+  const layers2d: Layers = { risk: layers.zones, roads: layers.roads, villages: layers.roads, sensors: layers.sensors, historical: false, volunteers: layers.volunteers }
 
   const [frames, setFrames] = useState<RainFrame[]>([])
   const [frameIdx, setFrameIdx] = useState<number | null>(null)       // null = live (latest observed)
@@ -136,6 +137,8 @@ export default function Dashboard() {
   const loadSummary = useCallback(async () => { try { setSummary(await api.summary()) } catch { /* offline */ } }, [])
   const loadInfra = useCallback(async () => { try { setInfrastructure(await api.infrastructure()) } catch { /* offline */ } }, [])
   const loadSensors = useCallback(async () => { try { setSensors(await api.sensors()) } catch { /* offline */ } }, [])
+  // Village volunteers (Gaon Prahari) are officer-only data: names and phones.
+  const loadVolunteers = useCallback(async () => { try { setVolunteers(await api.volunteers()) } catch { /* not an officer, or offline */ } }, [])
   const loadAlerts = useCallback(async () => { try { setAlerts(await api.alerts(60)) } catch { /* offline */ } }, [])
   // Pending reports, including ones someone is already checking: they keep their
   // card (and CONFIRM / DISMISS) until a decision is made.
@@ -147,10 +150,13 @@ export default function Dashboard() {
     api.weatherStatus().then(setWeather).catch(() => {})
     api.demoState().then(setDemo).catch(() => {})
     api.rainFrames(48).then((r) => setFrames(r.frames)).catch(() => {})
-    // Hardware LIVE dots need last-seen refreshed; cheap, every 15 s.
+    loadVolunteers()
+    // Hardware LIVE dots need last-seen refreshed; cheap, every 15 s. Volunteer
+    // "2 h ago" and stale flags every minute.
     const id = setInterval(loadSensors, 15000)
-    return () => clearInterval(id)
-  }, [loadZones, loadSummary, loadInfra, loadSensors, loadAlerts, loadEsc])
+    const vid = setInterval(loadVolunteers, 60000)
+    return () => { clearInterval(id); clearInterval(vid) }
+  }, [loadZones, loadSummary, loadInfra, loadSensors, loadAlerts, loadEsc, loadVolunteers])
 
   // A zone named in the URL (deep link from an alert email) gets the camera too.
   const flownToParam = useRef(false)
@@ -174,6 +180,10 @@ export default function Dashboard() {
         break
       case 'activity':
         pushTick(m.payload.text, m.payload.kind, m.payload.at)
+        if (String(m.payload.text).startsWith('Village gauge')) {
+          loadVolunteers()
+          if (String(m.payload.text).includes('ALERT')) pushToast(m.payload.text, 'Village volunteer')
+        }
         break
       case 'risk.update':
         loadZones()
@@ -333,6 +343,10 @@ export default function Dashboard() {
     })
   }, [sensors])
 
+  const volunteerPoints: VolunteerPoint[] = useMemo(() => volunteers.map((v) => ({
+    id: v.id, lat: v.lat, lon: v.lon, name: v.name, place: v.place, simulated: v.simulated,
+    last_mm: v.last_mm, ago: timeAgo(v.last_at), total_24h: v.total_24h, level: v.level, stale: v.stale,
+  })), [volunteers])
   const reportPoints: ReportPoint[] = useMemo(() => escalations.filter((r) => r.lat && r.lon)
     .map((r) => ({ id: r.id, lat: r.lat, lon: r.lon, label: r.issue_label })), [escalations])
 
@@ -492,13 +506,13 @@ export default function Dashboard() {
           {!(want3d && hide2d) && (
             <MapView zones={zones} infrastructure={infrastructure} sensors={sensors} historical={historical}
                      layers={layers2d} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
-                     rain={rainByZone} pulses={pulses} />
+                     rain={rainByZone} pulses={pulses} volunteers={volunteerPoints} />
           )}
           {want3d && (
             <div className={`map3d-layer${ready3d ? ' ready' : ''}`}>
               <Suspense fallback={null}>
                 <Map3D zones={zonesForMap} roads={infrastructure?.roads} villages={infrastructure?.villages}
-                       reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers}
+                       reports={reportPoints} rain={rainPoints} pins={pins} pulses={pulses} layers={layers} volunteers={volunteerPoints}
                        selectedZoneId={selectedZoneId} onSelectZone={selectZone} onSelectReport={selectReport} flyTo={flyTo} dark={dark}
                        basemap={satellite ? 'satellite' : 'map'} idleRotate tour={tour} resetSignal={resetSignal}
                        onReady={() => setReady3d(true)}
@@ -579,7 +593,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          {zoneDetail && <ZoneDrawer detail={zoneDetail} weather={weather} provenance={provenance} onClose={closeDrawer} more={drawerMore} setMore={setDrawerMore} />}
+          {zoneDetail && <ZoneDrawer detail={zoneDetail} weather={weather} provenance={provenance} onClose={closeDrawer} more={drawerMore} setMore={setDrawerMore}
+                                     volunteers={volunteers.filter((v) => v.zone_id === zoneDetail.id)} />}
         </div>
       </div>
 
@@ -630,9 +645,9 @@ const WHAT_TO_DO: Record<Severity, string> = {
   CRITICAL: 'Act now: move people away from the slope, close the road, confirm the warning so sirens and SMS go out.',
 }
 
-function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore }: {
+function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore, volunteers }: {
   detail: any; weather: WeatherStatus | null; provenance: ZoneProvenance | null; onClose: () => void
-  more: boolean; setMore: (v: boolean) => void
+  more: boolean; setMore: (v: boolean) => void; volunteers: Volunteer[]
 }) {
   const r = detail.risk
   const t = detail.terrain
@@ -683,6 +698,14 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore }: {
               <div className="drawer-section">
                 <span className="label">Rainfall &amp; soil moisture — last 72 h {weather?.using_real_weather && <Src kind="real" label="REAL · Open-Meteo" />}</span>
                 <Sparkline data={detail.sparkline ?? []} />
+                {(detail.volunteer_gauge ?? []).length > 0 && (detail.sparkline ?? []).length > 0 && (
+                  <>
+                    <GaugeStrip data={detail.volunteer_gauge} from={detail.sparkline[0].ts} to={detail.sparkline[detail.sparkline.length - 1].ts} />
+                    <p className="tiny muted" style={{ margin: '2px 0 0' }}>
+                      <span className="legend-key bars" /> Open-Meteo, hourly · <span className="legend-key dot" /> Village gauge (volunteer), mm since the previous reading
+                    </p>
+                  </>
+                )}
                 <dl className="kv" style={{ marginTop: 10 }}>
                   <dt>24h rainfall</dt><dd>{r.rainfall_24h?.toFixed(0)} mm</dd>
                   <dt>72h rainfall</dt><dd>{r.rainfall_72h?.toFixed(0)} mm</dd>
@@ -740,6 +763,21 @@ function ZoneDrawer({ detail, weather, provenance, onClose, more, setMore }: {
                 <div key={v.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
                   <span>{v.name} <span className="tiny muted">· pop {v.population.toLocaleString()}</span></span>
                   {v.is_cut_off && <span className="pill on">CUT OFF</span>}
+                </div>
+              ))}
+            </div>
+
+            <div className="drawer-section">
+              <span className="label">Village volunteers ({volunteers.length})</span>
+              {volunteers.length === 0 && <p className="muted tiny">None registered in this zone.</p>}
+              {volunteers.map((v) => (
+                <div key={v.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>{v.name}<span className="tiny muted"> · gauge at {v.place} · ···{v.phone_last4}</span></span>
+                  <span className="row" style={{ gap: 8 }}>
+                    {v.simulated && sources && <Src kind="sim" />}
+                    <span className="tiny muted">{v.total_24h.toFixed(0)} mm / 24 h · {v.last_at ? timeAgo(v.last_at) : 'no reading'}</span>
+                    {v.stale ? <span className="pill">QUIET</span> : v.level !== 'none' && <span className="pill on">{v.level.toUpperCase()}</span>}
+                  </span>
                 </div>
               ))}
             </div>

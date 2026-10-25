@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './styles/base.css'
 import { citizenQueue } from './offline/citizenQueue'
+import { gaugeQueue } from './offline/gaugeQueue'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -18,5 +19,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}) })
 }
-window.addEventListener('online', () => { citizenQueue.flush().catch(() => {}) })
+window.addEventListener('online', () => { citizenQueue.flush().catch(() => {}); gaugeQueue.flush().catch(() => {}) })
 citizenQueue.flush().catch(() => {})
+gaugeQueue.flush().catch(() => {})

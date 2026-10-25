@@ -4,6 +4,7 @@
  * networks and low-end phones. Same props as Map3D where they overlap.
  */
 import { useEffect, useRef } from 'react'
+import type { VolunteerPoint } from './Map3D'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { SEVERITY_FILL, asSeverity } from './Severity'
@@ -13,7 +14,7 @@ const INK = '#2F6B3A'
 
 export interface Layers {
   risk: boolean; roads: boolean; villages: boolean
-  sensors: boolean; historical: boolean
+  sensors: boolean; historical: boolean; volunteers?: boolean
 }
 
 interface Props {
@@ -28,6 +29,8 @@ interface Props {
   rain?: Record<string, number> | null
   /** fresh citizen reports to pulse */
   pulses?: Array<{ lat: number; lon: number; at: number }>
+  /** Gaon Prahari volunteers with their last gauge reading */
+  volunteers?: VolunteerPoint[]
 }
 
 function createBaseLayer(): L.TileLayer {
@@ -39,7 +42,7 @@ function createBaseLayer(): L.TileLayer {
 const NER_CENTER: L.LatLngExpression = [26.2, 91.8]
 
 export default function MapView({
-  zones, infrastructure, sensors, historical, layers, selectedZoneId, onSelectZone, rain, pulses,
+  zones, infrastructure, sensors, historical, layers, selectedZoneId, onSelectZone, rain, pulses, volunteers,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -63,6 +66,7 @@ export default function MapView({
       sensors: L.layerGroup().addTo(map),
       historical: L.layerGroup().addTo(map),
       pulses: L.layerGroup().addTo(map),
+      volunteers: L.layerGroup().addTo(map),
     }
     // The host is a flex cell on desktop but a fixed-height block on a phone.
     // Both change size without a window resize, which Leaflet does not notice
@@ -240,6 +244,25 @@ export default function MapView({
       }).addTo(g)
     }
   }, [pulses])
+
+  // --- village volunteers: a person; grey when quiet in the rain, red at ALERT
+  useEffect(() => {
+    const g = groups.current.volunteers
+    if (!g) return
+    g.clearLayers()
+    const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    for (const v of volunteers ?? []) {
+      const fill = v.stale ? '#7A8580' : v.level === 'alert' ? '#FFFFFF' : '#7FD1AE'
+      const ring = v.level === 'alert' && !v.stale ? '#F87171' : fill
+      const html = `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#0F1A17" stroke="${ring}" stroke-width="2"/>`
+        + `<circle cx="12" cy="8.5" r="3.2" fill="${fill}"/><path d="M6.5 18.5Q12 9.5 17.5 18.5Z" fill="${fill}"/></svg>`
+      const last = v.last_mm == null ? 'no reading yet' : `last ${v.last_mm.toFixed(0)} mm · ${v.ago}`
+      L.marker([v.lat, v.lon], { icon: L.divIcon({ className: '', iconSize: [24, 24], iconAnchor: [12, 12], html }), keyboard: false })
+        .bindTooltip(`<strong>${esc(v.name)}</strong>${v.simulated ? ' · SIMULATED' : ''}<br>Village gauge at ${esc(v.place)}<br>`
+          + `${v.total_24h.toFixed(0)} mm in 24 h · ${last}${v.stale ? '<br>No reading for 12 h while it is raining' : ''}`)
+        .addTo(g)
+    }
+  }, [volunteers])
 
   // --- layer visibility --------------------------------------------------
   useEffect(() => {

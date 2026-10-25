@@ -340,3 +340,25 @@
   min-height: 0; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center;
   background: var(--surface-3); color: var(--brand-ink);
 }
+
+/* ---- Gaon Prahari rain gauge: big readout, phone-style number pad */
+.gauge-readout { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.gauge-num { font-family: var(--font-head); font-size: 64px; font-weight: 800; color: var(--text); line-height: 1; }
+.gauge-unit { font-size: 22px; font-weight: 700; color: var(--text-muted); }
+.numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.numpad button {
+  min-height: 64px; border: 2px solid var(--line); border-radius: var(--radius-sm); background: var(--surface);
+  color: var(--text); font-family: var(--font-head); font-size: 28px; font-weight: 800; cursor: pointer;
+  transition: transform .1s var(--ease);
+}
+.numpad button:active { transform: scale(.95); background: var(--surface-2); }
+.gauge-result {
+  margin-top: 14px; padding: 16px; border-radius: var(--radius); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  background: var(--surface); border: 2px solid var(--line); color: var(--text);
+}
+.gauge-result .gauge-result-text { flex: 1 1 200px; margin: 0; font-size: 19px; font-weight: 800; line-height: 1.3; }
+.gauge-result.lv-none { border-color: var(--sev-low-ink); }
+.gauge-result.lv-watch { background: var(--sev-high); border-color: var(--sev-high); color: var(--sev-high-fg); }
+.gauge-result.lv-alert { background: var(--sev-critical); border-color: var(--sev-critical); color: var(--sev-critical-fg); }
+.gauge-result.lv-queued, .gauge-result.lv-unregistered { border-color: var(--line-strong); }
+.linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--brand-ink); text-decoration: underline; cursor: pointer; }

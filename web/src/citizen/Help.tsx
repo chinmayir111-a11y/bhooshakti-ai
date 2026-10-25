@@ -1,6 +1,6 @@
 /** Emergency help: two tap-to-call buttons, SMS keywords, the warning signs. */
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import { ISSUE_PICTOS, IconBell, IconMail, PictoEvacuate, PictoPhone, PictoShield } from '../components/Pictograms'
 import { useLang } from '../i18n'
@@ -66,6 +66,13 @@ export default function CitizenHelp() {
           <li><span className="cz-kbd">JOIN 734101</span>{t('help_sms_join')}</li>
         </ul>
         {sms?.configured && <a className="cz-linkbtn" href={`sms:${num}?body=SAFE%20`}><IconMail />SAFE …</a>}
+      </div>
+
+      {/* Gaon Prahari: trained volunteers send the village rain-gauge reading. */}
+      <div className="step">
+        <h2>{t('gauge_title')}<Speak text={`${t('gauge_link')}. ${t('gauge_sms_hint')}`} lang={lang} dark /></h2>
+        <p>{t('gauge_sms_hint')}</p>
+        <Link className="cz-linkbtn" to="/gauge">{t('gauge_link')}</Link>
       </div>
     </Shell>
   )

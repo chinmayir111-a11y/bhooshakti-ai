@@ -3,6 +3,8 @@
     LS <pincode or village> [what you see]   report a landslide
     LS <lat>,<lon> [what you see]             same, from GPS (the citizen app fills
                                               this in when there is no internet)
+    R 45                                      village volunteer: 45 mm in the gauge
+                                              since the last reading
     LS 734101 CRACK SPRING                    with warning signs: CRACK SPRING TILT
                                               SOUND STONES SINK (+10 trust each)
     SAFE <pincode or village>                 ask the current risk
@@ -31,6 +33,7 @@ KEYWORDS = {
     "JOIN": "join", "START": "join", "SUBSCRIBE": "join",
     "STOP": "stop", "UNSUBSCRIBE": "stop",
     "HELP": "help", "?": "help",
+    "R": "rain", "RAIN": "rain",          # village volunteer gauge: R 45
 }
 LANG_CODES = {"EN": "en", "HI": "hi", "AS": "as", "BN": "bn", "NE": "ne"}
 PINCODE = re.compile(r"^\d{6}$")
@@ -54,6 +57,7 @@ class Command:
     lat: float | None = None        # GPS sent instead of a pincode
     lon: float | None = None
     signs: list[str] = field(default_factory=list)   # LS 734101 CRACK SPRING
+    mm: float | None = None                          # R 45: mm in the gauge since the last reading
     raw: str = ""
 
 
@@ -70,6 +74,11 @@ def parse(body: str) -> Command:
     rest = tokens[1:]
 
     cmd = Command(intent, raw=raw)
+    if intent == "rain":
+        # Read from the raw text: stripping punctuation would turn 12.5 into 12.
+        num = re.match(r"^\S+\s+(\d+(?:[.,]\d+)?)\s*(?:mm)?\b", raw, re.IGNORECASE)
+        cmd.mm = float(num.group(1).replace(",", ".")) if num else None
+        return cmd
     if intent == "report":
         cmd.signs = signs.from_words(rest)
     if intent in ("stop", "help") or not rest:

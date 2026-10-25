@@ -178,6 +178,27 @@ export function Sparkline({ data }: { data: Array<{ rainfall_mm: number; soil_mo
   )
 }
 
+/** Village-gauge readings (volunteer, mm since the previous reading) on the same
+ *  time axis as the hourly Open-Meteo bars above them: one dot per reading. */
+export function GaugeStrip({ data, from, to }: { data: Array<{ read_at: string; mm: number; level: string }>; from: string; to: string }) {
+  const t0 = new Date(from).getTime(), t1 = new Date(to).getTime()
+  const W = 380, H = 26
+  const pts = data.map((d) => ({ ...d, t: new Date(d.read_at).getTime() })).filter((d) => d.t >= t0 && d.t <= t1 + 3600e3)
+  if (!pts.length || t1 <= t0) return null
+  const x = (t: number) => Math.min(W - 8, Math.max(8, ((t - t0) / (t1 - t0)) * W))
+  return (
+    <svg className="gauge-strip" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Village gauge readings">
+      <line x1="0" y1={H - 6} x2={W} y2={H - 6} className="gauge-axis" />
+      {pts.map((d, i) => (
+        <g key={i} className={`gauge-dot lv-${d.level}`}>
+          <circle cx={x(d.t)} cy={H - 6} r="4" />
+          <text x={x(d.t)} y={H - 12} textAnchor="middle">{Math.round(d.mm)}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return '—'
   const then = new Date(iso).getTime()

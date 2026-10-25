@@ -30,7 +30,7 @@ from ..ws import (
 from ml.features import FeatureRow, build_frame
 from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse
 from ml.rainfall_trend import forecast_24h, seasonal_normal_72h, window_totals
-from . import spatial
+from . import spatial, volunteers
 
 log = logging.getLogger("bhooshakti.risk")
 
@@ -333,6 +333,14 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
                       raise_alerts: bool = True) -> dict[str, Any]:
     rain, soil, last_ts = _zone_series(db, zone.id)
     totals = window_totals(rain)
+    # A village volunteer's gauge read in the last few hours is rain measured on
+    # the slope itself: average it with the 25 km model value (volunteers.py).
+    gauge = volunteers.fresh_gauge(db, zone.id)
+    model_24h = totals["rainfall_24h"]
+    if gauge:
+        blended = round((model_24h + float(gauge["total_24h"])) / 2.0, 1)
+        totals = {**totals, "rainfall_24h": blended,
+                  "rainfall_72h": round(max(blended, totals["rainfall_72h"] + blended - model_24h), 1)}
     soil_now = soil[-1] if soil else 0.0
     real_forecast = _observed_forecast_24h(db, zone.id)
     if real_forecast is not None:
@@ -389,6 +397,16 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
             contributing_factors=[{"key": "report_confirmed", "weight": 1.0, "direction": "increases",
                                    "text": f"Landslide report #{confirmed['id']} confirmed{who} — held at CRITICAL"}]
             + list(result.contributing_factors))
+
+    if gauge:
+        hours = max(0.0, (datetime.now(timezone.utc) - gauge["read_at"]).total_seconds() / 3600.0)
+        ago = f"{hours * 60:.0f} min ago" if hours < 1 else f"{hours:.0f} h ago"
+        result = dataclasses.replace(result, contributing_factors=[{
+            "key": "volunteer_gauge", "weight": 0.0,
+            "direction": "increases" if gauge["total_24h"] > model_24h else "reduces",
+            "text": (f"Village gauge at {gauge['place']}: {gauge['total_24h']:.0f} mm in 24 h "
+                     f"({gauge['name']}, {ago}) — averaged with Open-Meteo's {model_24h:.0f} mm"),
+        }] + list(result.contributing_factors))
 
     previous = _latest_severity(db, zone.id)
     severity = Severity(result.severity)
@@ -524,7 +542,7 @@ def zone_detail(db: Session, zone: Zone, sparkline_hours: int = 72) -> dict[str,
             FROM rainfall_readings r
             LEFT JOIN soil_moisture_readings s
               ON s.zone_id = r.zone_id AND s.ts = r.ts
-            WHERE r.zone_id = :z
+            WHERE r.zone_id = :z AND r.ts <= NOW()      -- "last 72 h": never the forecast
             ORDER BY r.ts DESC LIMIT :n
         """), {"z": zone.id, "n": sparkline_hours}).mappings()
     ][::-1]
@@ -551,6 +569,7 @@ def zone_detail(db: Session, zone: Zone, sparkline_hours: int = 72) -> dict[str,
         },
         "risk": risk,
         "sparkline": spark,
+        "volunteer_gauge": volunteers.zone_readings(db, zone.id, sparkline_hours),
         "roads": spatial.roads_intersecting_zone(db, zone.id),
         "villages": spatial.villages_in_zone(db, zone.id),
         "bridges": spatial.bridges_in_zone(db, zone.id),
