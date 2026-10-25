@@ -17,6 +17,36 @@ where a number comes from. Open the **Demo** menu (right end of the status row) 
 
 ---
 
+## 60 seconds: the village warning loop (signs → volunteer gauge → siren → where to go)
+
+Open three tabs: the phone view of `/report`, the control room `/control` (zoomed to Darjeeling),
+and the phone view of `/safe`. Click **Demo → Reset demo** first.
+
+1. **0:00 — A villager reports what they saw** (`/report`). Skip the photo. In **2 · What did
+   you see?** tap **Cracks in ground or walls** and **Rumbling or cracking sounds** (each tile
+   reads itself aloud), enter pincode **734223** (Tindharia), press Send.
+   In the control room the card appears in *Waiting for check* with the two sign icons and
+   "+10 Villager saw new cracks…", "+10 Villager saw rumbling or cracking sounds".
+   *Say:* "GSI's Darjeeling pilot trained villagers to watch for exactly these six signs."
+2. **0:20 — The village volunteer's rain gauge.** On the phone open **Help → Village rain
+   gauge** (`/gauge`), use the SIMULATED volunteer S. Rai's number **+919000010002**, type
+   **72**, press Send. (Or as an SMS: `curl -s -X POST localhost:8000/api/inbound/sms
+   --data-urlencode From=+919000010002 --data-urlencode "Body=R 72"`.)
+   The phone turns red and says **"ALERT: move everyone to the safe place now"**; the SMS reply
+   names it (*ALERT: 72 mm in 24 h at Paglajhora (danger level 40 mm). Move to GMS Grounds now. Blow the whistle.*). In the control room a toast says *Village
+   gauge ALERT — siren sounded*, S. Rai's person icon gets a red ring, and Tindharia's first
+   reason reads *Village gauge at Paglajhora: 72 mm in 24 h …*.
+   *Say:* "One trained villager with a ₹2,000 gauge and a phone — the siren goes on the
+   village's own measurement, not a 25 km model."
+3. **0:40 — Where do I go?** On the phone open **Is it safe?** with pincode **734223**: CRITICAL,
+   and the green card *Nearest safe place — Dow Hill School — Go to Dow Hill School, 5.8 km
+   north-west*, spoken aloud, with **Open in Maps** (with GPS on, it is the place nearest the
+   phone instead). Places inside the danger zone are skipped
+   on purpose; an officer can mark any shelter unsafe from the zone drawer.
+   *Say:* "It doesn't just say danger — it says where to go, in the person's language."
+
+After the demo, **Reset demo** clears the volunteer's readings and the test report.
+
 ## 0:00 — The problem, in one sentence
 
 > "A landslide warning that only reaches a dashboard in the capital saves nobody on the slope.

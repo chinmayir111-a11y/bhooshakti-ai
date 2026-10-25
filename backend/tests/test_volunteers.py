@@ -19,6 +19,11 @@ def test_r_keyword_reads_the_gauge():
     assert parse("R").mm is None and parse("R lots").mm is None
 
 
+def test_phone_forms_all_match():
+    from app.services.volunteers import normalise_phone
+    assert normalise_phone("+91 98765 43210") == normalise_phone(" 919876543210") == "+919876543210"
+
+
 def test_village_levels_follow_the_zone_threshold():
     assert level_for(40, 100) == "none"
     assert level_for(70, 100) == "watch"        # 70 % of the threshold

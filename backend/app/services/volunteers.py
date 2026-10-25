@@ -55,8 +55,18 @@ def is_stale(last_reading_at: datetime | None, raining: bool, now: datetime) -> 
     return last_reading_at is None or now - last_reading_at > timedelta(hours=STALE_HOURS)
 
 
-def by_phone(db: Session, phone: str) -> Volunteer | None:
+def normalise_phone(phone: str) -> str:
+    """'+91 98765 43210', ' 919876543210' (a form-encoded '+' arrives as a
+    space) and '919876543210' all mean +919876543210."""
     p = (phone or "").strip()
+    digits = "".join(c for c in p if c.isdigit())
+    if not digits:
+        return ""
+    return "+" + digits if p.startswith("+") or len(digits) >= 12 else digits
+
+
+def by_phone(db: Session, phone: str) -> Volunteer | None:
+    p = normalise_phone(phone)
     if not p:
         return None
     return db.query(Volunteer).filter(Volunteer.phone == p, Volunteer.active.is_(True)).first()

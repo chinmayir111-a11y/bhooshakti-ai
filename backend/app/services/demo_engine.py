@@ -162,6 +162,9 @@ class DemoEngine:
 
             db.execute(text("DELETE FROM sensor_readings WHERE ingested_via IN ('mqtt','demo')"))
             db.execute(text("DELETE FROM response_actions"))
+            # Gauge readings sent by the SIMULATED demo volunteers during a rehearsal.
+            db.execute(text("DELETE FROM volunteer_rain_readings WHERE volunteer_id IN "
+                            "(SELECT id FROM volunteers WHERE simulated)"))
             db.execute(text("DELETE FROM field_reports WHERE client_uuid LIKE 'demo-%'"))
             db.execute(text("DELETE FROM citizen_reports WHERE description LIKE '[DEMO]%'"))
             db.execute(text(
