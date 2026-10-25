@@ -817,3 +817,10 @@ table.grid tr:hover td { background: var(--panel); }
 .release-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgba(5,10,8,.62); display: grid; place-items: center; padding: 16px; }
 .release-card { width: 100%; max-width: 460px; box-shadow: var(--shadow-lg); }
 .sender-flag { margin: 6px 0 0; color: var(--sev-high-ink); display: flex; gap: 5px; align-items: center; }
+
+/* ---- system health */
+.health-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.health-dot.green { background: var(--sev-low); } .health-dot.amber { background: var(--sev-moderate); } .health-dot.red { background: var(--sev-critical); }
+.health-banner { margin: 0; border-radius: 0; display: flex; gap: 8px; align-items: center; }
+.retry-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 10px; border-radius: 999px;
+  background: var(--sev-critical); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }

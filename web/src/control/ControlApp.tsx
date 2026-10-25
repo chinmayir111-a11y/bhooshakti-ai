@@ -5,6 +5,7 @@ import { AppHeader } from '../components/common'
 import { useLocalFlag } from '../hooks'
 import Alerts from '../pages/Alerts'
 import Audit from '../pages/Audit'
+import Health from '../pages/Health'
 import Dashboard from '../pages/Dashboard'
 import Moderation from '../pages/Moderation'
 import '../styles/theme.css'
@@ -39,6 +40,7 @@ export default function ControlApp() {
           <Route path="alerts" element={<Alerts />} />
           <Route path="moderation" element={<Moderation />} />
           <Route path="audit" element={<Audit />} />
+          <Route path="health" element={<Health />} />
         </Routes>
       </div>
     </ControlCtx.Provider>

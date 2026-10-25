@@ -50,6 +50,7 @@ export function SettingsMenu() {
           <button role="menuitemcheckbox" aria-checked={!dark} onClick={() => setDark(!dark)}>
             {dark ? <IconSun size={15} /> : <IconMoon size={15} />} {dark ? 'Light mode' : 'Dark mode'}
           </button>
+          <button role="menuitem" onClick={() => { window.location.assign('/control/health') }}>System health</button>
         </div>
       )}
     </div>

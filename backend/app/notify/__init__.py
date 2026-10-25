@@ -7,7 +7,9 @@ a broken SMS gateway must not swallow the email.
 """
 from __future__ import annotations
 
+import copy
 import logging
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -85,6 +87,44 @@ def build_channels(db: Session | None = None,
     return built
 
 
+RETRY_DELAYS_S = (1.0, 3.0)        # two more tries after the first: three in all
+
+
+def _one_recipient(channel, recipient: str):
+    """The same channel, aimed at a single recipient (for a retry)."""
+    for attr in ("recipients", "numbers", "tokens"):
+        if hasattr(channel, attr):
+            clone = copy.copy(channel)
+            setattr(clone, attr, [recipient])
+            return clone
+    return None
+
+
+def retry_failed(channel, payload: AlertPayload, results: list[DeliveryResult],
+                 delays: tuple[float, ...] = RETRY_DELAYS_S) -> list[DeliveryResult]:
+    """Retry each FAILED recipient with backoff. SIMULATED and SENT are final.
+    The last outcome is kept, with the number of tries in its detail."""
+    out = []
+    for r in results:
+        tries = 1
+        while r.status == "FAILED" and r.recipient and tries <= len(delays):
+            single = _one_recipient(channel, r.recipient)
+            if single is None:
+                break
+            time.sleep(delays[tries - 1])
+            tries += 1
+            try:
+                again = single.send(payload)
+                r = again[0] if again else r
+            except Exception as exc:
+                r = DeliveryResult(r.channel, r.recipient, "FAILED", f"{type(exc).__name__}: {exc}",
+                                   datetime.now(timezone.utc))
+        if tries > 1:
+            r = DeliveryResult(r.channel, r.recipient, r.status, f"{r.detail} (after {tries} tries)", r.sent_at)
+        out.append(r)
+    return out
+
+
 def dispatch(db: Session, alert: Alert, payload: AlertPayload,
              channels: list[str] | None = None,
              recipients: Recipients | None = None) -> list[DeliveryResult]:
@@ -94,13 +134,12 @@ def dispatch(db: Session, alert: Alert, payload: AlertPayload,
 
     for channel in build_channels(db, channels, recipients):
         try:
-            results.extend(channel.send(payload))
+            sent = channel.send(payload)
         except Exception as exc:                     # never let one channel kill the rest
             log.exception("channel %s raised", channel.name)
-            results.append(DeliveryResult(
-                channel.name, "", "FAILED", f"{type(exc).__name__}: {exc}",
-                datetime.now(timezone.utc),
-            ))
+            sent = [DeliveryResult(channel.name, "", "FAILED", f"{type(exc).__name__}: {exc}",
+                                   datetime.now(timezone.utc))]
+        results.extend(retry_failed(channel, payload, sent))
 
     for r in results:
         db.add(AlertDelivery(

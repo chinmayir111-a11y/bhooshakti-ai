@@ -41,3 +41,6 @@ infra/mosquitto/log/
 *.log
 web/.env.local
 backend/data/raw/
+
+# make backup
+backups/

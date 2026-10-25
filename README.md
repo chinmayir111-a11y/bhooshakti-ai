@@ -569,6 +569,25 @@ All demo accounts use the password `demo1234`.
   as "Data is stale — treat this as uncertain" and lower the confidence; the rule-based
   fallback keeps producing a score, so the map never goes blank.
 
+## Running it reliably
+
+- **System health** (gear menu → System health, `/control/health`, officers only): API,
+  database, MQTT, Open-Meteo, escalation ladder, model, email / SMS / voice providers and the
+  NASA login — green / amber / red with the last time each worked. A critical one in red puts
+  a banner on the control room; if the API itself is unreachable the banner says so and the
+  screen keeps the last data with its age.
+- **Retries:** every outgoing email / SMS / voice / push recipient that fails is retried twice
+  more with backoff (1 s, 3 s); the outcome per recipient is stored as SENT / FAILED /
+  SIMULATED. An alert with a failed delivery shows a red **Retry failed** chip.
+- **No internet:** weather and risk keep running from the cached data; the citizen app keeps
+  reports, SOS and volunteer gauge readings queued on the phone and sends them on reconnect.
+- **Backup:** `make backup` writes `backups/bhooshakti-<date>-<time>.sql.gz`;
+  `make restore FILE=backups/<file>.sql.gz` puts it back (this overwrites the database).
+  Tested by restoring into a scratch database: every table's row count matched.
+- **Before judging:** `make demo-check` (green/red list: API, database, model, MQTT, weather
+  cache age, safe places, volunteers, backtest, map and terrain tiles, SMTP) and
+  `make test-email` (sends one real alert to `TEST_ALERT_EMAIL`).
+
 ## Two apps in one
 
 | URL | Who | What |

@@ -78,6 +78,28 @@ def main() -> int:
              else f"{esc.get('last_error') or 'disabled'}")
         failed += not ok
 
+        # Weather cache freshness, shelters and volunteers straight from the database.
+        try:
+            from sqlalchemy import text as _t
+
+            from app.db import session_scope
+            with session_scope() as dbs:
+                age = dbs.execute(_t("SELECT EXTRACT(EPOCH FROM NOW() - MAX(fetched_at)) / 3600 "
+                                     "FROM weather_fetches WHERE ok")).scalar()
+                shelters = dbs.execute(_t("SELECT COUNT(*) FROM shelters")).scalar()
+                vols = dbs.execute(_t("SELECT COUNT(*) FROM volunteers WHERE active")).scalar()
+            fresh = age is not None and float(age) < 3
+            line(fresh if age is not None else False, "Weather cached",
+                 f"last fetch {float(age):.1f} h ago" if age is not None else "never fetched — run `make weather`")
+            failed += not fresh
+            line(bool(shelters) or None, "Safe places", f"{shelters} from OpenStreetMap" if shelters
+                 else "none — run `make shelters` (citizens get no 'go to' line)")
+            line(bool(vols) or None, "Village volunteers", f"{vols} registered" if vols
+                 else "none — run `python scripts/seed_volunteers.py`")
+        except Exception as e:                               # noqa: BLE001
+            line(False, "Weather cached", f"cannot read the database ({e.__class__.__name__})")
+            failed += 1
+
         try:
             ev = fetch(f"{API}/replay/summary")
             n = ev.get("summary", {}).get("events", 0)

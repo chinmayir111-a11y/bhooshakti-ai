@@ -6,7 +6,7 @@
  * data sources"); labels are hidden until that switch is on.
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import MapView, { type Layers } from '../components/MapView'
 import { type Layers3D, type Pin, type Pulse, type RainPoint, type ReportPoint, type View, type VolunteerPoint } from '../components/Map3D'
 import {
@@ -14,7 +14,7 @@ import {
 } from '../components/common'
 import { SEVERITY_FILL, SEVERITY_ORDER, SeverityShape, TIER_LABEL } from '../components/Severity'
 import { IconAlert, IconCheck, IconChevron, IconCompass, IconExternal, IconLayers, IconPause, IconPlay, SIGN_PICTOS, type SignKey } from '../components/Pictograms'
-import { api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type Volunteer, type WeatherStatus, type ZoneProvenance } from '../api/client'
+import { ApiError, api, getUser, type Alert, type CitizenReport, type RainFrame, type Severity, type Summary, type Volunteer, type WeatherStatus, type ZoneProvenance } from '../api/client'
 import { useLive, type LiveMessage } from '../api/ws'
 import { chime, countdown, notify, prefersReducedMotion, useCountUp, useLocalFlag, useNow } from '../hooks'
 import { useControl } from '../control/context'
@@ -72,6 +72,13 @@ export default function Dashboard() {
   const [infrastructure, setInfrastructure] = useState<any>(null)
   const [sensors, setSensors] = useState<any>(null)
   const [volunteers, setVolunteers] = useState<Volunteer[]>([])
+  // Critical services that are down (System health): a banner, checked every minute.
+  const [healthRed, setHealthRed] = useState<string[]>([])
+  useEffect(() => {
+    const check = () => api.healthStatus().then((h) => setHealthRed(h.critical_red ?? []))
+      .catch((e) => { if (!(e instanceof ApiError)) setHealthRed(['API unreachable']) })
+    check(); const id = setInterval(check, 60000); return () => clearInterval(id)
+  }, [])
   const [historical, setHistorical] = useState<any>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [weather, setWeather] = useState<WeatherStatus | null>(null)
@@ -133,7 +140,9 @@ export default function Dashboard() {
   }, [])
 
   // ---------------------------------------------------------------- loading
-  const loadZones = useCallback(async () => { try { setZones(await api.zones()) } catch { /* offline */ } }, [])
+  // When the server is unreachable the last data stays on screen, labelled with its age.
+  const [lastData, setLastData] = useState<string | null>(null)
+  const loadZones = useCallback(async () => { try { setZones(await api.zones()); setLastData(new Date().toISOString()) } catch { /* offline */ } }, [])
   const loadSummary = useCallback(async () => { try { setSummary(await api.summary()) } catch { /* offline */ } }, [])
   const loadInfra = useCallback(async () => { try { setInfrastructure(await api.infrastructure()) } catch { /* offline */ } }, [])
   const loadSensors = useCallback(async () => { try { setSensors(await api.sensors()) } catch { /* offline */ } }, [])
@@ -444,6 +453,16 @@ export default function Dashboard() {
         </div>
       )}
 
+      {healthRed.length > 0 && (
+        <p className="notice health-banner" role="alert">
+          <IconAlert size={15} />
+          {healthRed.includes('API unreachable')
+            ? <>Cannot reach the server — showing data last updated {lastData ? timeAgo(lastData) : 'earlier'}. It will refresh when the connection returns.</>
+            : <>System problem: {healthRed.join(', ')} — warnings may not go out.</>}
+          {' '}<Link to="/control/health">Details</Link>
+        </p>
+      )}
+
       {/* -------------------------------------------------- ticker */}
       <div className="ticker" aria-live="polite">
         <span className="ticker-label"><span className={`ws-dot${connected ? ' live' : ''}`} />{connected ? 'Live' : 'Offline'}</span>
@@ -480,6 +499,13 @@ export default function Dashboard() {
                     <div className="alert-meta">Risk {Math.round(a.risk_score)}/100 · {Math.round(a.confidence * 100)}% sure{a.district ? ` · ${a.district}` : ''}</div>
                     <div className="alert-factor">{a.kind && a.kind !== 'risk' ? a.title : a.contributing_factors?.[0]?.text}</div>
                     <DeliveryChips deliveries={a.deliveries ?? []} />
+                    {isAuthority && (a.deliveries ?? []).some((d: any) => d.status === 'FAILED') && (
+                      <span role="button" tabIndex={0} className="retry-chip"
+                            onClick={(e) => { e.stopPropagation(); run(`retry-${a.id}`, () => api.retryAlert(a.id)).then((r) => { if (r) { pushToast(`Retried ${r.retried} failed deliver${r.retried === 1 ? 'y' : 'ies'}: ${r.results.map((x: any) => x.status).join(', ') || 'none'}`); loadAlerts() } }) }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLElement).click() }}>
+                        {busy === `retry-${a.id}` && <span className="spinner" />}Retry failed
+                      </span>
+                    )}
                   </button>
                 ))}
               </>

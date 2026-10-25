@@ -44,7 +44,7 @@ DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
 .PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters demo \
+        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters demo backup restore \
         train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
@@ -172,6 +172,20 @@ reset: seed import-landslides train backtest ## Rebuild data and model from scra
 
 api: ## Run the API on :8000
 	@cd backend && .venv/bin/python -m uvicorn app.main:app --reload --port 8000
+
+# The database the API uses, from .env (SQLAlchemy URL -> libpq URL).
+DB_URL ?= $(shell grep -E '^DATABASE_URL=' .env 2>/dev/null | cut -d= -f2- | sed 's/+psycopg2//')
+
+backup: ## Dump the database to backups/bhooshakti-<date>-<time>.sql.gz
+	@mkdir -p backups
+	@f=backups/bhooshakti-$$(date +%Y%m%d-%H%M).sql.gz; \
+	  pg_dump --no-owner --clean --if-exists -d "$(DB_URL)" | gzip > $$f && \
+	  echo "  -> $$f ($$(du -h $$f | cut -f1))"
+
+restore: ## Restore a dump OVER the current database: make restore FILE=backups/<file>.sql.gz
+	@test -n "$(FILE)" || (echo "usage: make restore FILE=backups/<file>.sql.gz"; exit 1)
+	@test -f "$(FILE)" || (echo "no such file: $(FILE)"; exit 1)
+	@gunzip -c "$(FILE)" | psql -q -v ON_ERROR_STOP=1 -d "$(DB_URL)" > /dev/null && echo "  restored $(FILE)"
 
 demo: ## Production build of the web app on :4173 — use this for judging (3D map ~4x faster than make web)
 	@cd web && npm run build && npx vite preview --port 4173 --host
