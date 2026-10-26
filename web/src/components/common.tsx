@@ -1,25 +1,64 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { clearSession, getUser, type Severity } from '../api/client'
+import { clearSession, getUser } from '../api/client'
+import { useControl } from '../control/context'
+import { SeverityChip } from './Severity'
 
-export const SEVERITY_ORDER: Severity[] = ['CRITICAL', 'HIGH', 'MODERATE', 'LOW']
-
-export const SEVERITY_FILL: Record<Severity, string> = {
-  LOW: '#D6DFEA', MODERATE: '#A8BCD1', HIGH: '#5C7EA4', CRITICAL: '#1F3864',
-}
-
-export function SeverityChip({ value }: { value: Severity | string }) {
-  return <span className={`sev sev-${value}`}>{value}</span>
-}
+export { SEVERITY_FILL, SEVERITY_ORDER, SeverityChip, TierChip } from './Severity'
+import { IconGear, IconMoon, IconSun } from './Pictograms'
 
 export function DemoBadge({ dark = false }: { dark?: boolean }) {
   return (
-    <span className={`demo-badge${dark ? ' dark' : ''}`} title="Every figure on this screen is simulated. No live government feed or physical sensor is connected.">
-      DEMO DATA
+    <span className={`demo-badge${dark ? ' dark' : ''}`} title="Hazard events, sensors and zone boundaries on this screen are simulated. Weather and the historical landslide record are real.">
+      DEMO
     </span>
   )
 }
 
-/** Every page carries the product name, a one-line subtitle and the badge. */
+/** Provenance badge next to a number: REAL · Open-Meteo, REAL · live sensor, SIMULATED. */
+export function Src({ kind, label }: { kind: 'real' | 'live' | 'sim'; label?: string }) {
+  const { sources } = useControl()
+  if (!sources) return null
+  const text = label ?? (kind === 'real' ? 'REAL' : kind === 'live' ? 'REAL · live sensor' : 'SIMULATED')
+  return <span className={`provbadge ${kind}`}>{text}</span>
+}
+
+/** One settings menu (gear): Show data sources, Sound, Light/Dark. Used by
+ *  the control-room header and the replay page. */
+export function SettingsMenu() {
+  const { dark, setDark, sources, setSources, sound, setSound } = useControl()
+  const [open, setOpen] = useState(false)
+  async function toggleSound() {
+    const next = !sound
+    setSound(next)
+    if (next && 'Notification' in window && Notification.permission === 'default') {
+      try { await Notification.requestPermission() } catch { /* ignore */ }
+    }
+  }
+  return (
+    <div className="settings" onMouseLeave={() => setOpen(false)}>
+      <button className="iconbtn" aria-label="Settings" aria-expanded={open} onClick={() => setOpen((o) => !o)}><IconGear size={18} /></button>
+      {open && (
+        <div className="menu" role="menu">
+          <button role="menuitemcheckbox" aria-checked={sources} onClick={() => setSources(!sources)}>
+            <span className={`check${sources ? ' on' : ''}`} /> Show data sources
+            <span className="tiny muted" style={{ marginLeft: 'auto' }}>REAL / SIMULATED</span>
+          </button>
+          <button role="menuitemcheckbox" aria-checked={sound} onClick={toggleSound}>
+            <span className={`check${sound ? ' on' : ''}`} /> Sound on new danger
+          </button>
+          <button role="menuitemcheckbox" aria-checked={!dark} onClick={() => setDark(!dark)}>
+            {dark ? <IconSun size={15} /> : <IconMoon size={15} />} {dark ? 'Light mode' : 'Dark mode'}
+          </button>
+          <button role="menuitem" onClick={() => { window.location.assign('/control/health') }}>System health</button>
+          <button role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('bh-kbd-help')) }}>Keyboard shortcuts <span className="tiny muted" style={{ marginLeft: 'auto' }}>?</span></button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Control-room header: brand + "Control room", nav tabs, one settings menu, identity. */
 export function AppHeader() {
   const user = getUser()
   const navigate = useNavigate()
@@ -28,26 +67,26 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <div className="brand">
-        <span className="brand-mark">BHOOSHAKTI AI</span>
-        <span className="brand-sub">Landslide early warning &amp; risk monitoring — North-East India</span>
+        <span className="brand-mark">BHOOSHAKTI</span>
+        <span className="brand-sub">Control room</span>
       </div>
-      <div className="header-spacer" />
       <nav className="nav">
-        <NavLink to="/" end>Dashboard</NavLink>
-        <NavLink to="/alerts">Alerts</NavLink>
-        {authority && <NavLink to="/moderation">Moderation</NavLink>}
-        <NavLink to="/report">Report</NavLink>
-        {authority && <NavLink to="/audit">Audit</NavLink>}
+        <NavLink to="/control" end>Dashboard</NavLink>
+        <NavLink to="/control/alerts">Alerts</NavLink>
+        {authority && <NavLink to="/control/moderation">Reports</NavLink>}
+        <NavLink to="/replay">Replay</NavLink>
+        {authority && <NavLink to="/control/audit">Audit</NavLink>}
+        <NavLink to="/">Citizen app</NavLink>
       </nav>
+      <div className="header-spacer" />
+      <SettingsMenu />
       {user ? (
         <>
           <div className="who">
             <strong>{user.full_name || user.username}</strong>
-            {user.designation || user.role}
+            <span>{user.designation || user.role}</span>
           </div>
-          <button className="btn ghost sm" onClick={() => { clearSession(); navigate('/login') }}>
-            Sign out
-          </button>
+          <button className="btn ghost sm" onClick={() => { clearSession(); navigate('/login') }}>Sign out</button>
         </>
       ) : (
         <button className="btn ghost sm" onClick={() => navigate('/login')}>Sign in</button>
@@ -92,47 +131,32 @@ export function FactorList({ factors, limit }: { factors: Array<{ text: string; 
 }
 
 const CHANNEL_NAMES: Record<string, string> = {
-  email: 'Email', sms: 'SMS', push: 'Push',
+  email: 'Email', sms: 'SMS', push: 'Push', voice: 'Voice call',
   websocket: 'WebSocket', console: 'Console',
 }
 
-/**
- * One line per alert, deduplicated by channel.
- *
- * A single alert produces one delivery row per recipient, so an email to three
- * addresses used to render three identical "email" chips. Operators read the
- * channel, not the recipient count, so the channels are collapsed and each is
- * named once. Detail per recipient is still on the Alerts page.
- */
+/** One line per alert, deduplicated by channel. */
 export function DeliveryChips({ deliveries }: {
   deliveries: Array<{ channel: string; status: string; detail?: string }>
 }) {
   if (!deliveries?.length) return null
-
   const byChannel = new Map<string, Set<string>>()
   for (const d of deliveries) {
     if (!byChannel.has(d.channel)) byChannel.set(d.channel, new Set())
     byChannel.get(d.channel)!.add(d.status)
   }
-
-  const sent: string[] = []
-  const simulated: string[] = []
-  const failed: string[] = []
+  const sent: string[] = [], simulated: string[] = [], failed: string[] = []
   for (const [channel, statuses] of byChannel) {
     const name = CHANNEL_NAMES[channel] ?? channel
-    // A channel counts as delivered if any recipient succeeded; as failed only
-    // when nothing got through.
     if (statuses.has('SENT')) sent.push(name)
     else if (statuses.has('SIMULATED')) simulated.push(name)
     else failed.push(name)
   }
-
   const parts: string[] = []
   if (sent.length) parts.push(`${sent.join(', ')} sent`)
-  if (simulated.length) parts.push(`${simulated.join(', ')} \u2014 simulated`)
+  if (simulated.length) parts.push(`${simulated.join(', ')} — simulated`)
   if (failed.length) parts.push(`${failed.join(', ')} failed`)
-
-  return <div className="chan-line">{parts.join('  \u00b7  ')}</div>
+  return <div className="chan-line">{parts.join('  ·  ')}</div>
 }
 
 /** Rainfall bars with the soil-moisture trace over the top. */
@@ -141,11 +165,9 @@ export function Sparkline({ data }: { data: Array<{ rainfall_mm: number; soil_mo
   const W = 380, H = 62
   const maxRain = Math.max(1, ...data.map((d) => d.rainfall_mm))
   const bw = W / data.length
-
   const soilPts = data
     .map((d, i) => (d.soil_moisture_pct == null ? null : `${i * bw + bw / 2},${H - (d.soil_moisture_pct / 100) * H}`))
     .filter(Boolean).join(' ')
-
   return (
     <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
          aria-label="Hourly rainfall with soil moisture trace">
@@ -154,6 +176,27 @@ export function Sparkline({ data }: { data: Array<{ rainfall_mm: number; soil_mo
         return <rect key={i} className="spark-rain" x={i * bw} y={H - h} width={Math.max(bw - 0.6, 0.6)} height={h} />
       })}
       {soilPts && <polyline className="spark-soil" points={soilPts} vectorEffect="non-scaling-stroke" />}
+    </svg>
+  )
+}
+
+/** Village-gauge readings (volunteer, mm since the previous reading) on the same
+ *  time axis as the hourly Open-Meteo bars above them: one dot per reading. */
+export function GaugeStrip({ data, from, to }: { data: Array<{ read_at: string; mm: number; level: string }>; from: string; to: string }) {
+  const t0 = new Date(from).getTime(), t1 = new Date(to).getTime()
+  const W = 380, H = 26
+  const pts = data.map((d) => ({ ...d, t: new Date(d.read_at).getTime() })).filter((d) => d.t >= t0 && d.t <= t1 + 3600e3)
+  if (!pts.length || t1 <= t0) return null
+  const x = (t: number) => Math.min(W - 8, Math.max(8, ((t - t0) / (t1 - t0)) * W))
+  return (
+    <svg className="gauge-strip" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Village gauge readings">
+      <line x1="0" y1={H - 6} x2={W} y2={H - 6} className="gauge-axis" />
+      {pts.map((d, i) => (
+        <g key={i} className={`gauge-dot lv-${d.level}`}>
+          <circle cx={x(d.t)} cy={H - 6} r="4" />
+          <text x={x(d.t)} y={H - 12} textAnchor="middle">{Math.round(d.mm)}</text>
+        </g>
+      ))}
     </svg>
   )
 }
@@ -176,3 +219,5 @@ export function fmtTime(iso: string | null | undefined): string {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   })
 }
+
+export { SeverityChip as Sev }

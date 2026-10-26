@@ -12,6 +12,7 @@ Pipeline per zone:
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,18 +22,15 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Alert, Severity, Zone, ZoneRisk
-from ..notify import AlertPayload, dispatch
 from ..ws import (
-    EVENT_ALERT_DELIVERY,
-    EVENT_ALERT_NEW,
     EVENT_RISK_UPDATE,
     EVENT_SUMMARY,
     manager,
 )
 from ml.features import FeatureRow, build_frame
-from ml.fusion import FusionInput, fuse
+from ml.fusion import SEVERITY_BANDS, VERIFICATION_FRESH_HOURS, FusionInput, fuse, severity_for
 from ml.rainfall_trend import forecast_24h, seasonal_normal_72h, window_totals
-from . import spatial
+from . import quakes, shelters, spatial, volunteers
 
 log = logging.getLogger("bhooshakti.risk")
 
@@ -89,6 +87,18 @@ class ModelRegistry:
         except Exception:
             log.exception("model inference failed — using heuristic fallback")
             return _heuristic_probability(row)
+
+    def probabilities(self, rows: list[FeatureRow]) -> list[float]:
+        """Batched `probability` — one model call for a whole replay."""
+        if not rows:
+            return []
+        if not self.loaded or self.model is None:
+            return [_heuristic_probability(r) for r in rows]
+        try:
+            return [float(p) for p in self.model.predict_proba(build_frame(rows))[:, 1]]
+        except Exception:
+            log.exception("batched inference failed — using heuristic fallback")
+            return [_heuristic_probability(r) for r in rows]
 
     @property
     def version(self) -> str:
@@ -197,11 +207,22 @@ def _sensor_state(db: Session, zone_id: int) -> dict[str, Any]:
             last = last.replace(tzinfo=timezone.utc)
         minutes = (datetime.now(timezone.utc) - last).total_seconds() / 60.0
 
+    # Largest tilt swing on any ACTIVE node in the last 6 h — measured movement.
+    tilt = db.execute(text("""
+        SELECT r.node_id, MAX(r.tilt_deg) - MIN(r.tilt_deg) AS swing
+        FROM sensor_readings r JOIN sensor_nodes n ON n.node_id = r.node_id
+        WHERE r.zone_id = :z AND n.status = 'ACTIVE' AND r.tilt_deg IS NOT NULL
+          AND r.ts > NOW() - INTERVAL '6 hours'
+        GROUP BY r.node_id ORDER BY swing DESC NULLS LAST LIMIT 1
+    """), {"z": zone_id}).mappings().first()
+
     return {
         "total": int(row["total"]),
         "active": int(row["active"]),
         "failed_node_ids": failed,
         "minutes_since_last_reading": minutes,
+        "tilt_change_deg": float(tilt["swing"] or 0.0) if tilt else 0.0,
+        "tilt_node": tilt["node_id"] if tilt else "",
     }
 
 
@@ -222,6 +243,23 @@ def _latest_verification(db: Session, zone_id: int) -> dict[str, Any]:
     return {"verdict": row["verdict"], "age_hours": age, "officer": row["officer_name"] or ""}
 
 
+CRITICAL_AT = next(t for t, label in SEVERITY_BANDS if label == "CRITICAL")
+
+
+def _confirmed_report(db: Session, zone_id: int) -> dict[str, Any] | None:
+    """A citizen report an officer confirmed recently (same window a field
+    check counts for). Its WARNING went out as CRITICAL, so the zone must
+    read CRITICAL too, or the map and the alert disagree."""
+    since = datetime.now(timezone.utc) - timedelta(hours=VERIFICATION_FRESH_HOURS * 4)
+    row = db.execute(text("""
+        SELECT id, moderated_by FROM citizen_reports
+        WHERE zone_id = :z AND status = 'APPROVED' AND warning_alert_id IS NOT NULL
+          AND moderated_at >= :since
+        ORDER BY moderated_at DESC, id DESC LIMIT 1
+    """), {"z": zone_id, "since": since}).mappings().first()
+    return dict(row) if row else None
+
+
 def _latest_severity(db: Session, zone_id: int) -> Severity | None:
     row = db.execute(text("""
         SELECT severity::text FROM zone_risk
@@ -231,14 +269,99 @@ def _latest_severity(db: Session, zone_id: int) -> Severity | None:
 
 
 # ---------------------------------------------------------------------------
+# Point assessment (no database) — shared by the backtest and the replay page
+# ---------------------------------------------------------------------------
+
+
+def assess_series(rain: list[float], soil: list[float | None], *, label: str = "",
+                  hours: list[int] | None = None) -> list[dict[str, Any]]:
+    """Score a location hour by hour from its own weather history alone.
+
+    `rain` / `soil` are hourly, oldest first. For each index in `hours`
+    (default: every hour with >= 15 days of history behind it) the same
+    pipeline as the live system runs — window totals, seasonal normal, the
+    EWMA 24h nowcast, the trained model, fusion — using ONLY data up to
+    that hour. No future rainfall leaks in: the live system's Open-Meteo
+    forecast is replaced by the nowcast, because no archived forecast exists
+    for past events. There are no sensors and no terrain record for a
+    catalogue point, so those inputs are neutral and confidence reflects it.
+    """
+    min_h = 24 * 15
+    idx = hours if hours is not None else list(range(min_h, len(rain)))
+    idx = [h for h in idx if h >= 24]
+    if not idx:
+        return []
+
+    prepared = []
+    for h in idx:
+        hist = rain[: h + 1]
+        totals = window_totals(hist)
+        soil_now = next((v for v in reversed(soil[: h + 1]) if v is not None), 0.0)
+        fc_mm, _ = forecast_24h(hist, allow_holt=False)
+        normal = seasonal_normal_72h(hist[-24 * 30:])
+        prepared.append((h, totals, soil_now, fc_mm, normal))
+
+    rows = [FeatureRow(rainfall_24h=t["rainfall_24h"], rainfall_72h=t["rainfall_72h"],
+                       antecedent_rain_15d=t["antecedent_rain_15d"], soil_moisture_pct=sn,
+                       slope_deg=30.0, aspect_deg=180.0, elevation_m=1000.0,
+                       lithology="unknown", land_cover="unknown")
+            for _, t, sn, _, _ in prepared]
+    probs = registry.probabilities(rows)
+
+    out = []
+    for (h, totals, soil_now, fc_mm, normal), p in zip(prepared, probs):
+        r = fuse(FusionInput(
+            zone_code=label, zone_name=label, model_probability=p,
+            rainfall_24h=totals["rainfall_24h"], rainfall_72h=totals["rainfall_72h"],
+            antecedent_rain_15d=totals["antecedent_rain_15d"], soil_moisture_pct=soil_now,
+            forecast_24h_mm=fc_mm, seasonal_normal_72h=normal, slope_deg=30.0,
+            elevation_m=1000.0, lithology="unknown", land_cover="unknown",
+        ))
+        out.append({"hour": h, "risk_score": r.risk_score, "severity": r.severity,
+                    "confidence": r.confidence, "model_probability": round(p, 4),
+                    "rainfall_24h": totals["rainfall_24h"], "rainfall_72h": totals["rainfall_72h"],
+                    "soil_moisture_pct": round(soil_now, 1), "forecast_24h_mm": fc_mm})
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Computation
 # ---------------------------------------------------------------------------
+
+
+WEATHER_STALE_HOURS = 3.0
+
+
+def data_caveats(db: Session, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Reasons this estimate is less certain than usual (shown as factors with
+    key `stale_*`; the dashboard turns any of them into a banner)."""
+    now = now or datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+    if settings.use_real_weather:
+        last = db.execute(text("SELECT MAX(fetched_at) FROM weather_fetches WHERE ok")).scalar()
+        age_h = (now - last).total_seconds() / 3600.0 if last else None
+        if age_h is None or age_h > WEATHER_STALE_HOURS:
+            when = f"{age_h:.0f} h old" if age_h is not None else "never fetched"
+            out.append({"key": "stale_weather", "weight": 0.0, "direction": "reduces",
+                        "text": f"Weather data is {when} — treat this as uncertain"})
+    if not registry.loaded:
+        out.append({"key": "stale_model", "weight": 0.0, "direction": "reduces",
+                    "text": "Trained model unavailable — rule-based estimate, treat this as uncertain"})
+    return out
 
 
 def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
                       raise_alerts: bool = True) -> dict[str, Any]:
     rain, soil, last_ts = _zone_series(db, zone.id)
     totals = window_totals(rain)
+    # A village volunteer's gauge read in the last few hours is rain measured on
+    # the slope itself: average it with the 25 km model value (volunteers.py).
+    gauge = volunteers.fresh_gauge(db, zone.id)
+    model_24h = totals["rainfall_24h"]
+    if gauge:
+        blended = round((model_24h + float(gauge["total_24h"])) / 2.0, 1)
+        totals = {**totals, "rainfall_24h": blended,
+                  "rainfall_72h": round(max(blended, totals["rainfall_72h"] + blended - model_24h), 1)}
     soil_now = soil[-1] if soil else 0.0
     real_forecast = _observed_forecast_24h(db, zone.id)
     if real_forecast is not None:
@@ -283,7 +406,47 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
         field_verdict=verification["verdict"],
         verification_age_hours=verification["age_hours"],
         verified_by=verification["officer"],
+        tilt_change_deg=sensors["tilt_change_deg"],
+        tilt_node=sensors["tilt_node"],
     ))
+
+    confirmed = _confirmed_report(db, zone.id)
+    if confirmed and result.risk_score < CRITICAL_AT:
+        who = f" by {confirmed['moderated_by']}" if confirmed["moderated_by"] else ""
+        result = dataclasses.replace(
+            result, risk_score=CRITICAL_AT, severity="CRITICAL",
+            contributing_factors=[{"key": "report_confirmed", "weight": 1.0, "direction": "increases",
+                                   "text": f"Landslide report #{confirmed['id']} confirmed{who} — held at CRITICAL"}]
+            + list(result.contributing_factors))
+
+    # No false confidence: old weather or no trained model is said out loud and
+    # costs confidence. The score itself keeps coming (rule-based fallback), so
+    # the map never goes blank.
+    caveats = data_caveats(db)
+    if caveats:
+        result = dataclasses.replace(
+            result, confidence=round(max(0.15, result.confidence * 0.7), 3),
+            contributing_factors=list(result.contributing_factors) + caveats)
+
+    if gauge:
+        hours = max(0.0, (datetime.now(timezone.utc) - gauge["read_at"]).total_seconds() / 3600.0)
+        ago = f"{hours * 60:.0f} min ago" if hours < 1 else f"{hours:.0f} h ago"
+        result = dataclasses.replace(result, contributing_factors=[{
+            "key": "volunteer_gauge", "weight": 0.0,
+            "direction": "increases" if gauge["total_24h"] > model_24h else "reduces",
+            "text": (f"Village gauge at {gauge['place']}: {gauge['total_24h']:.0f} mm in 24 h "
+                     f"({gauge['name']}, {ago}) — averaged with Open-Meteo's {model_24h:.0f} mm"),
+        }] + list(result.contributing_factors))
+
+    # Shaking weakens slopes before the rain arrives: a recent nearby quake
+    # (USGS, M4.5+, <= 50 km, last 72 h) adds a bounded, fading boost.
+    quake = quakes.for_zone(db, zone.centroid_lat, zone.centroid_lon)
+    if quake:
+        score = round(min(100.0, result.risk_score + quake["points"]), 1)
+        result = dataclasses.replace(
+            result, risk_score=score, severity=severity_for(score),
+            contributing_factors=[{"key": "earthquake", "weight": quake["points"] / 100.0, "direction": "increases",
+                                   "text": quake["text"]}] + list(result.contributing_factors))
 
     previous = _latest_severity(db, zone.id)
     severity = Severity(result.severity)
@@ -331,6 +494,8 @@ def compute_zone_risk(db: Session, zone: Zone, trigger: str = "scheduled",
         "verified_by": verification["officer"],
         "sensors_total": sensors["total"],
         "sensors_active": sensors["active"],
+        "tilt_change_deg": round(sensors["tilt_change_deg"], 2),
+        "tilt_node": sensors["tilt_node"],
         "model_version": registry.version,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,
@@ -377,81 +542,21 @@ def _in_cooldown(db: Session, zone_id: int, severity: Severity) -> bool:
 
 def raise_alert(db: Session, zone: Zone, risk_score: float, confidence: float,
                 severity: Severity, factors: list[dict], source: str = "auto",
-                language: str = "en", force: bool = False) -> Alert | None:
+                language: str = "en", force: bool = False,
+                tier: str | None = None) -> Alert | None:
+    """Model- or demo-driven alert. HIGH is an ADVISORY and CRITICAL a WARNING
+    unless `tier` says otherwise (a field officer's confirmation is human
+    confirmation, so the demo's verified step passes WARNING)."""
     if not force and _in_cooldown(db, zone.id, severity):
         log.info("alert suppressed (cooldown): %s %s", zone.code, severity.value)
         return None
 
-    roads = spatial.roads_intersecting_zone(db, zone.id)
-    villages = spatial.villages_in_zone(db, zone.id)
-
-    from ..notify import templates
-
-    payload = AlertPayload(
-        alert_id=None,
-        zone_id=zone.id,
-        zone_code=zone.code,
-        zone_name=zone.name,
-        district=zone.district,
-        state=zone.state,
-        severity=severity.value,
-        risk_score=risk_score,
-        confidence=confidence,
-        contributing_factors=factors,
-        language=language,
-        deep_link=f"{settings.public_dashboard_url}/?zone={zone.id}",
-        affected_roads=[r["name"] for r in roads[:4]],
-        affected_villages=[v["name"] for v in villages[:6]],
-        source=source,
+    from . import alerting
+    return alerting.issue(
+        db, zone=zone, tier=tier or alerting.tier_for_model(severity), severity=severity,
+        risk_score=risk_score, confidence=confidence, factors=factors, source=source,
+        kind="risk", place=zone.name, language=language,
     )
-    payload.title = templates.subject(payload)
-    payload.message = templates.plain_text(payload)
-
-    alert = Alert(
-        zone_id=zone.id,
-        zone_name=zone.name,
-        severity=severity,
-        risk_score=risk_score,
-        confidence=confidence,
-        title=payload.title,
-        message=payload.message,
-        contributing_factors=factors,
-        language=language,
-        source=source,
-    )
-    db.add(alert)
-    db.flush()
-
-    results = dispatch(db, alert, payload)
-    db.commit()
-
-    manager.publish_threadsafe(EVENT_ALERT_NEW, {
-        "id": alert.id,
-        "zone_id": zone.id,
-        "zone_code": zone.code,
-        "zone_name": zone.name,
-        "district": zone.district,
-        "state": zone.state,
-        "severity": severity.value,
-        "risk_score": risk_score,
-        "confidence": confidence,
-        "contributing_factors": factors,
-        "title": payload.title,
-        "created_at": alert.created_at.isoformat() if alert.created_at else None,
-        "affected_roads": payload.affected_roads,
-        "affected_villages": payload.affected_villages,
-        "source": source,
-        "demo_data": True,
-    })
-    manager.publish_threadsafe(EVENT_ALERT_DELIVERY, {
-        "alert_id": alert.id,
-        "deliveries": [
-            {"channel": r.channel, "recipient": r.recipient,
-             "status": r.status, "detail": r.detail}
-            for r in results
-        ],
-    })
-    return alert
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +582,7 @@ def zone_detail(db: Session, zone: Zone, sparkline_hours: int = 72) -> dict[str,
             FROM rainfall_readings r
             LEFT JOIN soil_moisture_readings s
               ON s.zone_id = r.zone_id AND s.ts = r.ts
-            WHERE r.zone_id = :z
+            WHERE r.zone_id = :z AND r.ts <= NOW()      -- "last 72 h": never the forecast
             ORDER BY r.ts DESC LIMIT :n
         """), {"z": zone.id, "n": sparkline_hours}).mappings()
     ][::-1]
@@ -499,11 +604,14 @@ def zone_detail(db: Session, zone: Zone, sparkline_hours: int = 72) -> dict[str,
             "elevation_m": zone.elevation_m,
             "lithology": zone.lithology,
             "land_cover": zone.land_cover,
+            "terrain_source": zone.terrain_source,
             "area_km2": zone.area_km2,
             "population": zone.population,
         },
         "risk": risk,
         "sparkline": spark,
+        "volunteer_gauge": volunteers.zone_readings(db, zone.id, sparkline_hours),
+        "shelters": shelters.in_zone(db, zone.id),
         "roads": spatial.roads_intersecting_zone(db, zone.id),
         "villages": spatial.villages_in_zone(db, zone.id),
         "bridges": spatial.bridges_in_zone(db, zone.id),

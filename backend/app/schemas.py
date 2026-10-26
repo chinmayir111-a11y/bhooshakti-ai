@@ -7,8 +7,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Severity = Literal["LOW", "MODERATE", "HIGH", "CRITICAL"]
-Language = Literal["en", "hi", "as"]
-IssueType = Literal["crack", "slope_movement", "road_blockage", "water_seepage"]
+Language = Literal["en", "hi", "as", "bn", "ne"]
+IssueType = Literal["landslide", "crack", "slope_movement", "road_blockage", "water_seepage",
+                    "tilted_trees", "muddy_water", "voice_report"]
 
 
 # --------------------------------------------------------------------- auth --
@@ -104,6 +105,11 @@ class AlertOut(BaseModel):
     created_at: datetime
     acknowledged: bool
     source: str
+    tier: str = "WARNING"
+    status: str = "ACTIVE"
+    kind: str = "risk"
+    report_id: int | None = None
+    parent_alert_id: int | None = None
     deliveries: list[DeliveryOut]
     demo_data: bool = True
 
@@ -121,6 +127,24 @@ class CitizenReportCreate(BaseModel):
     photo_base64: str | None = Field(
         None, description="Optional data URI or bare base64 image payload."
     )
+    voice_base64: str | None = Field(
+        None, description="Optional voice note (data URI or bare base64; webm/ogg/m4a/wav/mp3)."
+    )
+    channel: Literal["web", "pwa", "pwa-offline"] = "web"
+    client_uuid: str | None = Field(
+        None, description="Set by the offline queue so a replayed report is stored once."
+    )
+    signs: list[Literal["crack", "spring", "tilt", "sound", "stones", "sinking"]] = Field(
+        default_factory=list, description="Warning signs the reporter saw (services/signs.py)."
+    )
+    device_id: str | None = Field(
+        None, max_length=64,
+        description="Random id the app keeps per device; tells senders apart when no phone is given.",
+    )
+
+
+class DecisionRequest(BaseModel):
+    notes: str = ""
 
 
 class ModerationRequest(BaseModel):

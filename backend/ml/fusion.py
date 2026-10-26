@@ -55,6 +55,14 @@ VERIFICATION_UPLIFT = 0.25
 VERIFICATION_DENIAL = -0.16
 VERIFICATION_FRESH_HOURS = 12.0
 
+# Ground movement measured by a tilt sensor is direct evidence of a moving
+# slope, not a proxy for one. A rotation of TILT_FLOOR_DEG starts to count; by
+# TILT_CEILING_DEG it adds the full uplift — comparable to a field
+# confirmation, because it is one, made by an instrument.
+TILT_FLOOR_DEG = 0.5
+TILT_CEILING_DEG = 3.0
+TILT_UPLIFT = 0.35
+
 CONFIDENCE_BASE = 0.90
 CONFIDENCE_MIN = 0.15
 CONFIDENCE_MAX = 0.95
@@ -118,6 +126,11 @@ class FusionInput:
     field_verdict: str | None = None
     verification_age_hours: float | None = None
     verified_by: str = ""
+
+    # Largest tilt change any ACTIVE node in the zone reported in the last
+    # 6 h, and which node it was.
+    tilt_change_deg: float = 0.0
+    tilt_node: str = ""
 
 
 @dataclass
@@ -194,7 +207,8 @@ def fuse(inp: FusionInput) -> FusionResult:
     hazard = sum(contributions.values())
 
     verification = _verification_adjustment(inp)
-    hazard = _clamp(hazard + verification)
+    movement = TILT_UPLIFT * _ramp(inp.tilt_change_deg, TILT_FLOOR_DEG, TILT_CEILING_DEG)
+    hazard = _clamp(hazard + verification + movement)
 
     risk_score = round(hazard * 100.0, 1)
     severity = severity_for(risk_score)
@@ -213,6 +227,7 @@ def fuse(inp: FusionInput) -> FusionResult:
         model_p=model_p,
         health=health,
         verification=verification,
+        movement=movement,
     )
 
     return FusionResult(
@@ -227,6 +242,7 @@ def fuse(inp: FusionInput) -> FusionResult:
             "forecast_pressure": round(forecast_pressure, 3),
             "rain_ratio_vs_normal": round(rain_ratio, 2),
             "verification_adjustment": round(verification, 3),
+            "ground_movement": round(movement, 3),
             "hazard": round(hazard, 4),
         },
         sensor_health=round(health, 3),
@@ -297,6 +313,7 @@ def _explain(
     model_p: float,
     health: float,
     verification: float = 0.0,
+    movement: float = 0.0,
 ) -> list[ContributingFactor]:
     """Ranked plain-language factors. Highest contribution first."""
     total = max(hazard, 1e-6)
@@ -319,6 +336,16 @@ def _explain(
             text=text_,
             weight=abs(verification) / total,
             direction="increases" if verification > 0 else "reduces",
+        ))
+
+    # --- measured ground movement -------------------------------------------
+    if movement > 1e-6:
+        who = f" at sensor {inp.tilt_node}" if inp.tilt_node else ""
+        out.append(ContributingFactor(
+            key="ground_movement",
+            text=f"Ground movement measured{who}: tilt changed {inp.tilt_change_deg:.1f}° in the last 6 h",
+            weight=movement / total,
+            direction="increases",
         ))
 
     # --- rainfall --------------------------------------------------------

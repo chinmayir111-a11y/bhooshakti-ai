@@ -39,6 +39,10 @@ from .ws import EVENT_SENSOR_READING, manager
 
 log = logging.getLogger("bhooshakti.mqtt")
 
+# A reading-to-reading rotation this large goes on the dashboard ticker.
+TILT_TICKER_DEG = 0.5
+RECOMPUTE_EVERY_S = 4.0
+
 
 class SensorIngest:
     def __init__(self) -> None:
@@ -46,6 +50,12 @@ class SensorIngest:
         self.connected = False
         self.messages_seen = 0
         self._node_cache: dict[str, tuple[int, str]] = {}   # node_id -> (zone_id, status)
+        # Last tilt per node, so a sudden rotation reaches the activity ticker.
+        self._last_tilt: dict[str, float] = {}
+        # Zones whose risk should be recomputed now (tilt swing, or any
+        # hardware reading), throttled per zone.
+        self._recompute: set[int] = set()
+        self._last_recompute: dict[int, float] = {}
         # (zone_id, hour) pairs whose roll-up is stale, and the worker that
         # drains them. A set collapses repeated readings in the same hour into
         # a single recomputation.
@@ -165,6 +175,10 @@ class SensorIngest:
 
             with self._dirty_lock:
                 self._dirty.add((node.zone_id, ts.replace(minute=0, second=0, microsecond=0)))
+                if node.source == "hardware" or (
+                        tilt is not None and node_id in self._last_tilt
+                        and abs(float(tilt) - self._last_tilt[node_id]) >= TILT_TICKER_DEG):
+                    self._recompute.add(node.zone_id)
 
             manager.publish_threadsafe(EVENT_SENSOR_READING, {
                 "node_id": node_id,
@@ -174,8 +188,16 @@ class SensorIngest:
                 "soil_moisture_pct": soil,
                 "tilt_deg": tilt,
                 "battery_pct": battery,
-                "demo_data": True,
+                "source": node.source,
+                "demo_data": node.source != "hardware",
             })
+            if tilt is not None:
+                prev = self._last_tilt.get(node_id)
+                self._last_tilt[node_id] = float(tilt)
+                if prev is not None and abs(float(tilt) - prev) >= TILT_TICKER_DEG:
+                    label = "LIVE hardware" if node.source == "hardware" else "simulated"
+                    manager.activity(f"Sensor {node_id} tilt {float(tilt) - prev:+.1f}° ({label})",
+                                     kind="sensor", node_id=node_id, zone_id=node.zone_id)
 
     # ---------------------------------------------------------------- flush
     def _flush_loop(self) -> None:
@@ -204,7 +226,55 @@ class SensorIngest:
             return 0
 
         self.rollups_done += len(batch)
+        self._recompute_due()
         return len(batch)
+
+    def _recompute_due(self) -> None:
+        """Live risk for zones with fresh movement or hardware telemetry, so a
+        tilted board moves the dashboard within seconds, not at the next
+        scheduled recompute. At most once every RECOMPUTE_EVERY_S per zone."""
+        now = time.monotonic()
+        with self._dirty_lock:
+            due = {z for z in self._recompute
+                   if now - self._last_recompute.get(z, 0.0) >= RECOMPUTE_EVERY_S}
+            self._recompute -= due
+        if not due:
+            return
+        from .models import Zone
+        from .services import risk_service, spatial
+        from .ws import EVENT_SUMMARY
+        try:
+            with session_scope() as db:
+                for zone_id in due:
+                    zone = db.get(Zone, zone_id)
+                    if zone is not None:
+                        risk_service.compute_zone_risk(db, zone, trigger="sensor", raise_alerts=True)
+                    self._last_recompute[zone_id] = now
+                db.commit()
+                manager.publish_threadsafe(EVENT_SUMMARY, spatial.dashboard_summary(db))
+        except Exception:
+            log.exception("live recompute failed for zones %s", due)
+
+    def publish(self, topic: str, payload: dict, retain: bool = False) -> bool:
+        """Publish on the ingest connection, or a one-shot connection when the
+        subscriber is not up (scripts, tests). Returns False if the broker is
+        unreachable — callers record that, they never raise on it."""
+        body = json.dumps(payload, default=str)
+        if self.client is not None and self.connected:
+            try:
+                info = self.client.publish(topic, body, qos=1, retain=retain)
+                return info.rc == mqtt.MQTT_ERR_SUCCESS
+            except Exception:
+                log.exception("publish on %s failed", topic)
+                return False
+        try:
+            import paho.mqtt.publish as one_shot
+            one_shot.single(topic, body, qos=1, retain=retain,
+                            hostname=settings.mqtt_host, port=settings.mqtt_port)
+            return True
+        except Exception as exc:
+            log.warning("MQTT publish to %s failed: %s", topic, exc)
+            return False
 
     @property
     def pending_rollups(self) -> int:

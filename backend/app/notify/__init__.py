@@ -7,32 +7,34 @@ a broken SMS gateway must not swallow the email.
 """
 from __future__ import annotations
 
+import copy
 import logging
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Alert, AlertDelivery, DeliveryStatus, User
-from .base import AlertPayload, DeliveryResult
+from .base import AlertPayload, DeliveryResult, Recipients
 from .channels import (
     ConsoleChannel,
     EmailChannel,
     PushChannel,
     SmsChannel,
+    VoiceChannel,
     WebsocketChannel,
 )
 from . import templates
 
 log = logging.getLogger("bhooshakti.notify")
 
-__all__ = ["AlertPayload", "DeliveryResult", "dispatch", "build_channels", "templates"]
+__all__ = ["AlertPayload", "DeliveryResult", "Recipients", "dispatch", "build_channels",
+           "officials", "templates"]
 
 
-def build_channels(db: Session | None = None,
-                   channels: list[str] | None = None) -> list:
-    """Instantiate the configured channels, resolving recipients from the DB."""
-    wanted = [c.lower() for c in (channels or settings.channel_list)]
+def officials(db: Session | None) -> Recipients:
+    """Every authority and field officer, plus the configured test inbox/phone."""
     emails: list[str] = []
     phones: list[str] = []
     tokens: list[str] = []
@@ -53,13 +55,25 @@ def build_channels(db: Session | None = None,
         emails.insert(0, settings.alert_test_email)
     if settings.alert_test_phone and settings.alert_test_phone not in phones:
         phones.insert(0, settings.alert_test_phone)
+    # Officials get the SMS; a voice call is reserved for the public, who may
+    # not be able to read one.
+    return Recipients(emails=emails, phones=phones, voice=[], tokens=tokens)
+
+
+def build_channels(db: Session | None = None,
+                   channels: list[str] | None = None,
+                   recipients: Recipients | None = None) -> list:
+    """Instantiate the configured channels for `recipients` (default: officials)."""
+    wanted = [c.lower() for c in (channels or settings.channel_list)]
+    r = recipients if recipients is not None else officials(db)
 
     registry = {
         "console": lambda: ConsoleChannel(),
         "websocket": lambda: WebsocketChannel(),
-        "email": lambda: EmailChannel(emails),
-        "sms": lambda: SmsChannel(phones),
-        "push": lambda: PushChannel(tokens),
+        "email": lambda: EmailChannel(r.emails) if r.emails else None,
+        "sms": lambda: SmsChannel(r.phones) if r.phones else None,
+        "push": lambda: PushChannel(r.tokens),
+        "voice": lambda: VoiceChannel(r.voice) if r.voice else None,
     }
     built = []
     for name in wanted:
@@ -67,25 +81,65 @@ def build_channels(db: Session | None = None,
         if factory is None:
             log.warning("unknown notification channel %r — skipped", name)
             continue
-        built.append(factory())
+        ch = factory()
+        if ch is not None:          # a medium with nobody to reach is skipped, not stubbed
+            built.append(ch)
     return built
 
 
+RETRY_DELAYS_S = (1.0, 3.0)        # two more tries after the first: three in all
+
+
+def _one_recipient(channel, recipient: str):
+    """The same channel, aimed at a single recipient (for a retry)."""
+    for attr in ("recipients", "numbers", "tokens"):
+        if hasattr(channel, attr):
+            clone = copy.copy(channel)
+            setattr(clone, attr, [recipient])
+            return clone
+    return None
+
+
+def retry_failed(channel, payload: AlertPayload, results: list[DeliveryResult],
+                 delays: tuple[float, ...] = RETRY_DELAYS_S) -> list[DeliveryResult]:
+    """Retry each FAILED recipient with backoff. SIMULATED and SENT are final.
+    The last outcome is kept, with the number of tries in its detail."""
+    out = []
+    for r in results:
+        tries = 1
+        while r.status == "FAILED" and r.recipient and tries <= len(delays):
+            single = _one_recipient(channel, r.recipient)
+            if single is None:
+                break
+            time.sleep(delays[tries - 1])
+            tries += 1
+            try:
+                again = single.send(payload)
+                r = again[0] if again else r
+            except Exception as exc:
+                r = DeliveryResult(r.channel, r.recipient, "FAILED", f"{type(exc).__name__}: {exc}",
+                                   datetime.now(timezone.utc))
+        if tries > 1:
+            r = DeliveryResult(r.channel, r.recipient, r.status, f"{r.detail} (after {tries} tries)", r.sent_at)
+        out.append(r)
+    return out
+
+
 def dispatch(db: Session, alert: Alert, payload: AlertPayload,
-             channels: list[str] | None = None) -> list[DeliveryResult]:
+             channels: list[str] | None = None,
+             recipients: Recipients | None = None) -> list[DeliveryResult]:
     """Send `payload` on every configured channel and persist the outcomes."""
     payload.alert_id = alert.id
     results: list[DeliveryResult] = []
 
-    for channel in build_channels(db, channels):
+    for channel in build_channels(db, channels, recipients):
         try:
-            results.extend(channel.send(payload))
+            sent = channel.send(payload)
         except Exception as exc:                     # never let one channel kill the rest
             log.exception("channel %s raised", channel.name)
-            results.append(DeliveryResult(
-                channel.name, "", "FAILED", f"{type(exc).__name__}: {exc}",
-                datetime.now(timezone.utc),
-            ))
+            sent = [DeliveryResult(channel.name, "", "FAILED", f"{type(exc).__name__}: {exc}",
+                                   datetime.now(timezone.utc))]
+        results.extend(retry_failed(channel, payload, sent))
 
     for r in results:
         db.add(AlertDelivery(

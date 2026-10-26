@@ -33,6 +33,10 @@ EVENT_DEMO_STEP = "demo.step"
 EVENT_DEMO_STATE = "demo.state"
 EVENT_SUMMARY = "summary.update"
 EVENT_RESPONSE_PLAN = "response.plan"
+EVENT_REPORT_ESCALATION = "report.escalation"
+EVENT_ALERT_UPDATE = "alert.update"
+# One-line human-readable happenings for the dashboard ticker.
+EVENT_ACTIVITY = "activity"
 
 
 def _default(obj: Any) -> Any:
@@ -80,7 +84,7 @@ class ConnectionManager:
     async def broadcast(self, event: str, payload: Any) -> None:
         message = {"event": event, "payload": payload,
                    "ts": datetime.now().astimezone().isoformat()}
-        if event in (EVENT_ALERT_NEW, EVENT_DEMO_STEP):
+        if event in (EVENT_ALERT_NEW, EVENT_DEMO_STEP, EVENT_ACTIVITY):
             self._recent.append(message)
             self._recent = self._recent[-50:]
 
@@ -104,6 +108,13 @@ class ConnectionManager:
             asyncio.run_coroutine_threadsafe(self.broadcast(event, payload), self._loop)
         except RuntimeError:  # pragma: no cover - loop shutting down
             pass
+
+    def activity(self, text: str, kind: str = "info", **extra: Any) -> None:
+        """Push one ticker line, e.g. "New report near Kohima"."""
+        self.publish_threadsafe(EVENT_ACTIVITY, {
+            "text": text, "kind": kind,
+            "at": datetime.now().astimezone().isoformat(), **extra,
+        })
 
     def clear_replay(self) -> None:
         self._recent.clear()

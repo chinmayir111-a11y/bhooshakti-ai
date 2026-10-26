@@ -70,7 +70,11 @@ CRITICAL_CODE = "DJ-04"
 # resulting band per zone. Re-run it after retraining and re-pick from the table.
 # The scripted story is: all three corridor zones reach HIGH on telemetry alone,
 # and DJ-04 crosses into CRITICAL only once a field officer confirms movement.
-ZONE_TARGET_24H_MM = {"DJ-04": 45.0, "SK-02": 34.0, "DJ-01": 26.0}
+# Re-measured 2026-10-24 against model v2.0-xgb-real (trained on NASA GLC
+# events): at soil 78%, 60 mm -> 57 HIGH for DJ-04 (CRITICAL once a field
+# officer confirms, +25), 45 mm -> 53 HIGH for the other two. The earlier
+# 34/26 mm targets now land at 50.6 and 48.0 — on and under the line.
+ZONE_TARGET_24H_MM = {"DJ-04": 60.0, "SK-02": 45.0, "DJ-01": 45.0}
 DEFAULT_TARGET_24H_MM = 35.0
 
 # Peak soil saturation each zone reaches at the height of the storm.
@@ -158,6 +162,9 @@ class DemoEngine:
 
             db.execute(text("DELETE FROM sensor_readings WHERE ingested_via IN ('mqtt','demo')"))
             db.execute(text("DELETE FROM response_actions"))
+            # Gauge readings sent by the SIMULATED demo volunteers during a rehearsal.
+            db.execute(text("DELETE FROM volunteer_rain_readings WHERE volunteer_id IN "
+                            "(SELECT id FROM volunteers WHERE simulated)"))
             db.execute(text("DELETE FROM field_reports WHERE client_uuid LIKE 'demo-%'"))
             db.execute(text("DELETE FROM citizen_reports WHERE description LIKE '[DEMO]%'"))
             db.execute(text(
@@ -621,7 +628,7 @@ class DemoEngine:
                     risk_service.raise_alert(
                         db, zone, after["risk_score"], after["confidence"],
                         Severity(after["severity"]), after["contributing_factors"],
-                        source="demo-verified", force=True)
+                        source="demo-verified", force=True, tier="WARNING")
             await asyncio.to_thread(alert)
 
         with session_scope() as db:
@@ -766,12 +773,12 @@ class DemoEngine:
         """Remember the weather rows the storm is about to overwrite."""
         since = datetime.now(timezone.utc) - timedelta(hours=STORM_HOURS + 2)
         rain = db.execute(text("""
-            SELECT r.zone_id, r.ts, r.rainfall_mm, r.source
+            SELECT r.zone_id, r.ts, r.rainfall_mm, r.source, r.is_forecast
             FROM rainfall_readings r JOIN zones z ON z.id = r.zone_id
             WHERE z.code = ANY(:c) AND r.ts >= :since
         """), {"c": self.state.zone_codes, "since": since}).mappings().all()
         soil = db.execute(text("""
-            SELECT s.zone_id, s.ts, s.moisture_pct, s.source
+            SELECT s.zone_id, s.ts, s.moisture_pct, s.source, s.is_forecast
             FROM soil_moisture_readings s JOIN zones z ON z.id = s.zone_id
             WHERE z.code = ANY(:c) AND s.ts >= :since
         """), {"c": self.state.zone_codes, "since": since}).mappings().all()
@@ -804,17 +811,21 @@ class DemoEngine:
             if row["kind"] == "rain":
                 db.execute(text("""
                     INSERT INTO rainfall_readings (zone_id, ts, rainfall_mm, source, is_forecast)
-                    VALUES (:z,:ts,:v,:s,FALSE)
+                    VALUES (:z,:ts,:v,:s,:f)
                     ON CONFLICT ON CONSTRAINT uq_rainfall_zone_hour DO NOTHING
                 """), {"z": row["zone_id"], "ts": row["ts"],
-                       "v": row["rainfall_mm"], "s": row["source"]})
+                       "v": row["rainfall_mm"], "s": row["source"],
+                       # Restoring a forecast row as an observation would put
+                       # tomorrow's rain into every trailing-24h total.
+                       "f": bool(row.get("is_forecast", False))})
             else:
                 db.execute(text("""
                     INSERT INTO soil_moisture_readings (zone_id, ts, moisture_pct, source, is_forecast)
-                    VALUES (:z,:ts,:v,:s,FALSE)
+                    VALUES (:z,:ts,:v,:s,:f)
                     ON CONFLICT ON CONSTRAINT uq_soil_zone_hour DO NOTHING
                 """), {"z": row["zone_id"], "ts": row["ts"],
-                       "v": row["moisture_pct"], "s": row["source"]})
+                       "v": row["moisture_pct"], "s": row["source"],
+                       "f": bool(row.get("is_forecast", False))})
         log.info("demo: restored %d weather rows", len(self._weather_snapshot))
 
 

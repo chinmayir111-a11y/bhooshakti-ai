@@ -25,7 +25,7 @@ def infrastructure(request: Request, db: Session = Depends(get_db),
     }
 
 
-@router.get("/historical", summary="Historical landslide events as GeoJSON")
+@router.get("/historical", summary="Real past landslides (NASA GLC / curated) as GeoJSON")
 def historical(db: Session = Depends(get_db)) -> dict:
     fc = spatial.historical_geojson(db)
     fc["demo_data"] = True

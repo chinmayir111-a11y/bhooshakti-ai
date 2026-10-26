@@ -64,3 +64,53 @@ def save_photo(payload: str | None, prefix: str = "report") -> str:
     name = f"{prefix}-{uuid.uuid4().hex[:12]}.{ext}"
     (settings.upload_dir / name).write_bytes(raw)
     return f"/uploads/{name}"
+
+
+# Voice notes: a 20 s clip from the web recorder (webm/ogg/mp4) or the IVR
+# (wav/mp3). Same rules as photos — recognised container or nothing.
+MAX_AUDIO_BYTES = 3 * 1024 * 1024
+_AUDIO_DATA_URI = re.compile(r"^data:audio/(?P<ext>[a-z0-9.+-]+)(;[^,]*)?;base64,", re.I)
+_AUDIO_SIGNATURES = [
+    (b"\x1aE\xdf\xa3", "webm"),     # EBML: webm / matroska
+    (b"OggS", "ogg"),
+    (b"RIFF", "wav"),
+    (b"ID3", "mp3"),
+    (b"\xff\xfb", "mp3"),
+    (b"\xff\xf3", "mp3"),
+]
+
+
+def _audio_ext(raw: bytes) -> str | None:
+    for signature, ext in _AUDIO_SIGNATURES:
+        if raw.startswith(signature):
+            return ext
+    if raw[4:8] == b"ftyp":         # mp4 / m4a — what Safari's MediaRecorder emits
+        return "m4a"
+    return None
+
+
+def save_audio_bytes(raw: bytes, prefix: str = "voice") -> str:
+    if not raw or len(raw) > MAX_AUDIO_BYTES:
+        log.warning("discarded a voice note of %d bytes", len(raw or b""))
+        return ""
+    ext = _audio_ext(raw)
+    if ext is None:
+        log.warning("discarded a voice payload with no recognised audio signature")
+        return ""
+    name = f"{prefix}-{uuid.uuid4().hex[:12]}.{ext}"
+    (settings.upload_dir / name).write_bytes(raw)
+    return f"/uploads/{name}"
+
+
+def save_audio(payload: str | None, prefix: str = "voice") -> str:
+    """Persist a base64 voice note and return its public path, or ''."""
+    if not payload:
+        return ""
+    match = _AUDIO_DATA_URI.match(payload)
+    if match:
+        payload = payload[match.end():]
+    try:
+        raw = base64.b64decode(payload.strip(), validate=False)
+    except (binascii.Error, ValueError):
+        return ""
+    return save_audio_bytes(raw, prefix)

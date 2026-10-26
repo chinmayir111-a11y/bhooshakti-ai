@@ -18,21 +18,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .db import session_scope
+from .db import ensure_schema_additions, session_scope
 from .mqtt_client import ingest
 from .routers import (
+    health,
+    ops,
+    shelters,
+    volunteers,
     alerts,
     audit,
     auth,
+    cap,
     demo,
     field,
+    inbound,
     infrastructure,
+    public,
+    replay,
     reports,
     risk,
     weather,
     zones,
 )
-from .services import risk_service, spatial
+from .services import escalation, quakes, risk_service, spatial, weather_job
 from .ws import manager
 
 logging.basicConfig(
@@ -76,8 +84,19 @@ async def lifespan(app: FastAPI):
     log.info("loading susceptibility model …")
     risk_service.registry.load()
 
+    try:
+        ensure_schema_additions()
+    except Exception as exc:
+        log.warning("could not apply schema additions (%s)", exc)
+
     log.info("starting MQTT ingest …")
     ingest.start()
+
+    if settings.escalation_enabled:
+        escalation.scheduler.start()
+    weather_job.scheduler.start()
+    if settings.quake_feed_enabled:
+        quakes.feed.start()
 
     try:
         with session_scope() as db:
@@ -90,6 +109,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    escalation.scheduler.stop()
+    weather_job.scheduler.stop()
+    quakes.feed.stop()
     ingest.stop()
     log.info("shutdown complete")
 
@@ -105,7 +127,15 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+",
+    # Any private-LAN origin, so the dashboard and Expo app can be opened
+    # from a phone on the same wifi without re-pinning an IP that changes
+    # with every network. Covers 10/8, 172.16/12 and 192.168/16.
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1"
+        r"|10\.\d+\.\d+\.\d+"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+"
+        r"|192\.168\.\d+\.\d+):\d+"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,7 +145,8 @@ app.mount("/uploads", StaticFiles(directory=str(settings.upload_dir)), name="upl
 
 for router in (auth.router, zones.router, risk.router, alerts.router, reports.router,
                field.router, infrastructure.router, demo.router, audit.router,
-               weather.router):
+               weather.router, inbound.router, cap.router, public.router, replay.router,
+               volunteers.router, shelters.router, health.router, ops.router):
     app.include_router(router)
 
 
@@ -167,6 +198,12 @@ def health() -> dict:
             "error": risk_service.registry.load_error,
         },
         "websocket_clients": manager.client_count,
+        "escalation": {
+            "enabled": settings.escalation_enabled,
+            "interval_s": settings.escalation_interval_s,
+            "ticks": escalation.scheduler.ticks,
+            "last_error": escalation.scheduler.last_error,
+        },
         "email": {
             "configured": settings.email_configured,
             "test_recipient": settings.alert_test_email,
@@ -175,6 +212,10 @@ def health() -> dict:
         "weather": {
             "provider": settings.weather_provider,
             "using_real_weather": settings.use_real_weather,
+            "refresh_minutes": settings.weather_refresh_minutes,
+            "refresh_runs": weather_job.scheduler.runs,
+            "last_refresh": weather_job.scheduler.last_run,
+            "last_error": weather_job.scheduler.last_error,
         },
         "notify_channels": settings.channel_list,
         "demo_data": True,

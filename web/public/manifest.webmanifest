@@ -1,0 +1,21 @@
+{
+  "name": "BHOOSHAKTI — Landslide warning",
+  "short_name": "Bhooshakti",
+  "description": "Report a landslide, check if you are safe, get emergency help. Works offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F1EA",
+  "theme_color": "#2F6B3A",
+  "lang": "en-IN",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "shortcuts": [
+    { "name": "Report landslide", "url": "/report", "icons": [{ "src": "/icon.svg", "sizes": "any" }] },
+    { "name": "Am I safe?", "url": "/safe", "icons": [{ "src": "/icon.svg", "sizes": "any" }] }
+  ]
+}

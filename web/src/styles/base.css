@@ -1,0 +1,158 @@
+/* ==========================================================================
+   BHOOSHAKTI AI — design tokens shared by the citizen app and the control
+   room. Colours from the North-East hills: tea-garden green, monsoon slate,
+   terracotta soil, bamboo yellow, morning mist. Flat fills, no gloss.
+
+   Severity is readable without reading AND without colour vision:
+     LOW       green  #22C55E  tick   circle
+     MODERATE  yellow #FACC15  !      triangle
+     HIGH      orange #F97316  !      diamond
+     CRITICAL  red    #DC2626  cross  octagon, pulsing
+   Every severity mark carries its icon and shape (components/Severity.tsx);
+   the colour is the third cue, never the only one.
+
+   Text colours below are checked for WCAG AA (>= 4.5:1) on their surfaces.
+   ========================================================================== */
+
+:root {
+  /* palette */
+  --tea:          #2F6B3A;   /* brand — 6.4:1 on white, 5.7:1 on mist */
+  --slate:        #3E4C59;   /* ink — 7.8:1 on mist */
+  --terracotta:   #B4532A;   /* accent fill; text uses --earth-ink */
+  --bamboo:       #E3B23C;   /* highlight; slate text on it 4.5:1 */
+  --mist:         #F4F1EA;
+
+  --brand:        var(--tea);
+  --brand-ink:    #24532D;
+  --brand-soft:   #DCE9D9;
+  --brand-press:  #1F4A27;   /* 2px bottom edge on brand buttons */
+  --earth:        #9A4521;   /* terracotta, darkened for text: 5.7:1 on mist */
+  --earth-fill:   var(--terracotta);
+  --earth-press:  #8C3F1F;
+  --earth-soft:   #F6E1D6;
+  --highlight:    var(--bamboo);
+  --highlight-soft: #FBF0D3;
+  --highlight-ink:  #7A5A0F;
+  --on-brand:     #FFFFFF;
+  --header-bg:    #0B1411;   /* the control-room header is dark in both modes */
+  --danger:       #DC2626;
+
+  --bg:           var(--mist);
+  --surface:      #FFFFFF;
+  --surface-2:    #EEEAE0;
+  --surface-3:    #E5E0D3;
+  --line:         #E2DCCF;
+  --line-strong:  #CFC7B6;
+  --text:         var(--slate);
+  --text-muted:   #5A6672;   /* 5.2:1 on mist */
+  --text-faint:   #5F6A75;   /* 4.9:1 on mist */
+
+  --sev-low:      #22C55E;  --sev-low-fg:      #052E16;
+  --sev-moderate: #FACC15;  --sev-moderate-fg: #422006;
+  --sev-high:     #F97316;  --sev-high-fg:     #431407;
+  --sev-critical: #DC2626;  --sev-critical-fg: #FFFFFF;
+  /* Darker versions for text and thin strokes on white. */
+  --sev-low-ink:      #15803D;
+  --sev-moderate-ink: #854D0E;
+  --sev-high-ink:     #C2410C;
+  --sev-critical-ink: #B91C1C;
+
+  --radius:    14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(40, 48, 56, .07);
+  --shadow-md: 0 2px 8px rgba(40, 48, 56, .08), 0 1px 2px rgba(40, 48, 56, .06);
+  --shadow-lg: 0 12px 30px rgba(40, 48, 56, .16), 0 3px 8px rgba(40, 48, 56, .08);
+
+  --font: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Bengali", -apple-system, BlinkMacSystemFont,
+          "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Rounded Baloo for headings, in the script of the chosen language. */
+  --font-head: "Baloo 2", var(--font);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+
+  color-scheme: light;
+}
+:root:lang(hi), :root:lang(ne) { --font-head: "Baloo Bhai 2", "Baloo 2", var(--font); }
+:root:lang(as), :root:lang(bn) { --font-head: "Baloo Da 2", "Baloo 2", var(--font); }
+
+/* Dark mode — the default for the control room and the replay page, and the
+   citizen app's own night-forest look. Same hues as the citizen scene. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #7FD1AE; --brand-ink: #9EDFC3; --brand-soft: rgba(127,209,174,.16); --brand-press: #5FB391; --on-brand: #0F1A17;
+    --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: rgba(232,148,106,.16);
+    --highlight-soft: rgba(227,178,60,.16); --highlight-ink: #E3B23C;
+    --bg: #0F1A17; --surface: #16231F; --surface-2: #1C2B26; --surface-3: #243631;
+    --line: rgba(232,239,234,.12); --line-strong: rgba(232,239,234,.26);
+    --text: #E8EFEA; --text-muted: #9FB2AA; --text-faint: #8A9C94;
+    --header-bg: #0B1411;
+    --danger: #DC2626;
+    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FACC15; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 3px 12px rgba(0,0,0,.45);
+    --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+    --brand: #7FD1AE; --brand-ink: #9EDFC3; --brand-soft: rgba(127,209,174,.16); --brand-press: #5FB391; --on-brand: #0F1A17;
+    --earth: #E8946A; --earth-fill: #C2643A; --earth-press: #8C3F1F; --earth-soft: rgba(232,148,106,.16);
+    --highlight-soft: rgba(227,178,60,.16); --highlight-ink: #E3B23C;
+    --bg: #0F1A17; --surface: #16231F; --surface-2: #1C2B26; --surface-3: #243631;
+    --line: rgba(232,239,234,.12); --line-strong: rgba(232,239,234,.26);
+    --text: #E8EFEA; --text-muted: #9FB2AA; --text-faint: #8A9C94;
+    --header-bg: #0B1411;
+    --danger: #DC2626;
+    --sev-low-ink: #4ADE80; --sev-moderate-ink: #FACC15; --sev-high-ink: #FB923C; --sev-critical-ink: #F87171;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 3px 12px rgba(0,0,0,.45);
+    --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; }
+h1, h2, h3, .head-font { font-family: var(--font-head); }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+/* ----------------------------------------------------------- severity mark */
+.sevmark { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px 2px 4px; background: color-mix(in srgb, currentColor 15%, transparent); }
+.sevmark svg { flex: 0 0 auto; }
+.sevmark.CRITICAL svg { animation: sev-pulse 1.4s var(--ease) infinite; transform-origin: center; }
+@keyframes sev-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(220,38,38,0)); }
+  50% { transform: scale(1.12); filter: drop-shadow(0 0 6px rgba(220,38,38,.65)); }
+}
+
+.provbadge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap; vertical-align: middle;
+}
+.provbadge.real { background: var(--brand-soft); color: var(--brand-ink); }
+.provbadge.live { background: #DCFCE7; color: #14532D; }
+.provbadge.sim  { background: var(--earth-soft); color: var(--earth); }
+:root[data-theme="dark"] .provbadge.live { background: #14532D; color: #BBF7D0; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%; animation: shimmer 1.3s linear infinite; border-radius: 8px;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}

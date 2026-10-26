@@ -1,0 +1,284 @@
+/**
+ * Report a landslide with no typing: photo, then location (automatic), then an
+ * optional hold-to-record voice note, then send. Offline, the report is queued in
+ * IndexedDB and sent on reconnect; an SMS fallback opens the phone's own
+ * messaging app with `LS <pincode> <note>` already filled in.
+ */
+import { useEffect, useRef, useState } from 'react'
+import { api } from '../api/client'
+import { ISSUE_PICTOS, IconArrow, IconCheck, IconMail, PictoCamera, PictoMic, PictoPin, SIGN_PICTOS, SIGN_SMS, type SignKey } from '../components/Pictograms'
+import { useOnline } from '../hooks'
+import { speak, useLang } from '../i18n'
+import { citizenQueue } from '../offline/citizenQueue'
+import { makeUuid } from '../offline/queue'
+import { rememberRisk } from './rain'
+import Shell, { Speak } from './Shell'
+import SmsButton from './SmsButton'
+
+type Pos = { lat: number; lon: number; accuracy: number }
+const ISSUES = ['landslide', 'road_blockage', 'crack', 'tilted_trees', 'muddy_water'] as const
+
+function readAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result)); r.onerror = reject
+    r.readAsDataURL(blob)
+  })
+}
+
+/** Downscale a phone photo so a 3G upload is seconds, not minutes. */
+async function shrink(file: File, max = 1280, quality = 0.8): Promise<string> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url
+    })
+    const scale = Math.min(1, max / Math.max(img.width, img.height))
+    const c = document.createElement('canvas')
+    c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale)
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+    return c.toDataURL('image/jpeg', quality)
+  } catch {
+    return readAsDataUrl(file)
+  } finally { URL.revokeObjectURL(url) }
+}
+
+export default function CitizenReport() {
+  const [lang, , t] = useLang()
+  const online = useOnline()
+  const [photo, setPhoto] = useState<string | null>(null)
+  const [pos, setPos] = useState<Pos | null>(null)
+  const [locState, setLocState] = useState<'idle' | 'finding' | 'ok' | 'failed'>('idle')
+  const [geo, setGeo] = useState<any>(null)
+  const [pin, setPin] = useState('')
+  const [pinBusy, setPinBusy] = useState(false)
+  const [byPin, setByPin] = useState(false)
+  const [issue, setIssue] = useState<typeof ISSUES[number]>('landslide')
+  const [signs, setSigns] = useState<SignKey[]>([])
+  const [voice, setVoice] = useState<string | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [note, setNote] = useState('')
+  const [phone, setPhone] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<{ queued: boolean; id?: number; zone?: string | null } | null>(null)
+  const [error, setError] = useState('')
+  const recorder = useRef<MediaRecorder | null>(null)
+  const chunks = useRef<Blob[]>([])
+  const uuid = useRef(makeUuid())
+
+  // Location is captured automatically — the reporter never types a coordinate.
+  function locate() {
+    if (!navigator.geolocation) { setLocState('failed'); return }
+    setLocState('finding')
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setPos({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy }); setLocState('ok') },
+      () => setLocState('failed'),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
+    )
+  }
+  useEffect(locate, [])
+  useEffect(() => {
+    if (!pos || !online || byPin) return
+    api.geoCheck(pos.lat, pos.lon).then(setGeo).catch(() => setGeo(null))
+  }, [pos, online, byPin])
+
+  // No GPS (laptop, permission denied, indoors): a 6-digit pincode places the
+  // report at that post office, which is how the SMS channel locates it too.
+  async function locateByPin(e: React.FormEvent) {
+    e.preventDefault()
+    if (!/^\d{6}$/.test(pin)) return
+    setPinBusy(true); setError('')
+    try {
+      const r = await api.pincodeRisk(pin, lang)
+      if (r.lat == null || r.lon == null) throw new Error()
+      rememberRisk(r)
+      setPos({ lat: r.lat, lon: r.lon, accuracy: 0 })
+      setGeo({ zone_name: r.zone_name ?? r.place, nearest_pincode: pin, geo_valid: r.inside_zone })
+      setByPin(true); setLocState('ok')
+    } catch {
+      setError(`${t('safe_pincode')}: ${pin} — ${t('safe_unknown')}`)
+    } finally { setPinBusy(false) }
+  }
+
+  async function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (f) setPhoto(await shrink(f))
+  }
+
+  async function startRec() {
+    if (recording) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      chunks.current = []
+      mr.ondataavailable = (ev) => { if (ev.data.size) chunks.current.push(ev.data) }
+      mr.onstop = async () => {
+        stream.getTracks().forEach((tr) => tr.stop())
+        const blob = new Blob(chunks.current, { type: mr.mimeType || 'audio/webm' })
+        if (blob.size) setVoice(await readAsDataUrl(blob))
+        setRecording(false)
+      }
+      recorder.current = mr
+      mr.start()
+      setRecording(true)
+      window.setTimeout(() => { if (mr.state === 'recording') mr.stop() }, 20000)   // 20 s cap
+    } catch { setError('Microphone not available') }
+  }
+  function stopRec() { if (recorder.current?.state === 'recording') recorder.current.stop() }
+
+  // `LS <pincode> <what you see>` — the keyword format the SMS gateway parses.
+
+  async function send() {
+    if (!pos) { setError(t('report_location_failed')); return }
+    setBusy(true); setError('')
+    const body = {
+      client_uuid: uuid.current, issue_type: issue, lat: pos.lat, lon: pos.lon,
+      description: note, phone, language: lang, photo_base64: photo, voice_base64: voice, signs,
+    }
+    try {
+      if (!online) throw new Error('offline')
+      const r = await api.createReport({ ...body, channel: 'pwa' })
+      setDone({ queued: false, id: r.id, zone: r.zone_name })
+    } catch {
+      await citizenQueue.enqueue(body)
+      setDone({ queued: true })
+    } finally { setBusy(false) }
+  }
+
+  if (done) return <Done done={done} />
+
+  const Picto = ISSUE_PICTOS[issue as keyof typeof ISSUE_PICTOS] ?? ISSUE_PICTOS.landslide
+
+  return (
+    <Shell back title={t('report')}>
+      {/* 1 photo */}
+      <div className={`step${photo ? ' done' : ''}`}>
+        <h2><span className="n">1</span>{t('report_take_photo')}<Speak text={`${t('report_take_photo')}. ${t('report_photo_hint')}`} lang={lang} dark />{photo && <span className="okmark"><IconCheck size={26} /></span>}</h2>
+        <p>{t('report_photo_hint')}</p>
+        {photo ? (
+          <>
+            <img className="photo-preview" src={photo} alt="" />
+            <label className="cz-linkbtn" style={{ marginTop: 10 }}>
+              {t('report_retake')}<input type="file" accept="image/*" capture="environment" onChange={onPhoto} hidden />
+            </label>
+          </>
+        ) : (
+          <label className="photo-btn">
+            <PictoCamera size={64} />{t('report_take_photo')}
+            <input type="file" accept="image/*" capture="environment" onChange={onPhoto} hidden />
+          </label>
+        )}
+      </div>
+
+      {/* 2 warning signs — multi-select, each tile can read itself aloud */}
+      <div className={`step${signs.length ? ' done' : ''}`}>
+        <h2><span className="n">2</span>{t('seen_title')}<Speak text={`${t('seen_title')}. ${t('signs_hint')}`} lang={lang} dark />{signs.length > 0 && <span className="okmark"><IconCheck size={26} /></span>}</h2>
+        <p>{t('signs_hint')}</p>
+        <div className="picto-grid sign-grid" role="group" aria-label={t('seen_title')}>
+          {(Object.keys(SIGN_PICTOS) as SignKey[]).map((k) => {
+            const P = SIGN_PICTOS[k]
+            const on = signs.includes(k)
+            const toggle = () => setSigns((s) => on ? s.filter((x) => x !== k) : [...s, k])
+            return (
+              <div key={k} role="checkbox" aria-checked={on} tabIndex={0} className={`tile${on ? ' on' : ''}`}
+                   onClick={toggle} onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle() } }}>
+                <span className="tile-speak"><Speak text={t(`sign_${k}`)} lang={lang} dark size={34} /></span>
+                <P size={44} />{t(`sign_${k}`)}
+                {on && <span className="tile-tick"><IconCheck size={16} /></span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 3 location — automatic */}
+      <div className={`step${locState === 'ok' ? ' done' : ''}`}>
+        <h2><span className="n">3</span>{locState === 'ok' ? t('report_located') : t('report_locating')}
+          <Speak text={locState === 'ok' ? t('report_located') : t('report_locating')} lang={lang} dark />
+          {locState === 'ok' && <span className="okmark"><IconCheck size={26} /></span>}
+        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <PictoPin size={44} style={{ color: locState === 'ok' ? 'var(--sev-low-ink)' : 'var(--text-faint)' }} />
+          <div style={{ fontSize: 15, color: 'var(--text-muted)' }}>
+            {locState === 'finding' && <span className="skeleton" style={{ display: 'inline-block', width: 160, height: 16 }} />}
+            {locState === 'ok' && pos && <>{geo?.zone_name ?? `${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`}<br /><span style={{ fontSize: 13 }}>{byPin ? `PIN ${pin}` : `± ${Math.round(pos.accuracy)} m`}</span></>}
+            {locState === 'failed' && <>{t('report_location_failed')}<br /><button className="cz-linkbtn" style={{ marginTop: 8, minHeight: 44 }} onClick={locate}>{t('report_retry_location')}</button></>}
+          </div>
+        </div>
+        <form onSubmit={locateByPin} style={{ marginTop: 12 }}>
+          <label style={{ display: 'block', fontSize: 15, color: 'var(--text-muted)', marginBottom: 6 }} htmlFor="rpin">{t('safe_pincode')}</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input id="rpin" className="cz-input" inputMode="numeric" pattern="\d{6}" maxLength={6} value={pin}
+                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder="734223" />
+            <button className="cz-linkbtn" style={{ width: 'auto', padding: '0 18px' }} type="submit" disabled={pinBusy || pin.length !== 6} aria-label={t('safe_pincode')}><IconArrow size={22} /></button>
+          </div>
+        </form>
+      </div>
+
+      {/* 4 what do you see — pictograms, optional */}
+      <div className="step">
+        <h2><span className="n">4</span>{t('report_what')}<Speak text={t('report_what')} lang={lang} dark /></h2>
+        <div className="picto-grid" role="radiogroup">
+          {ISSUES.map((k) => {
+            const P = ISSUE_PICTOS[k as keyof typeof ISSUE_PICTOS]
+            return (
+              <button key={k} type="button" role="radio" aria-checked={issue === k} className={issue === k ? 'on' : ''}
+                      onClick={() => setIssue(k)}>
+                <P size={44} />{t(`issue_${k}`)}
+              </button>
+            )
+          })}
+          <button type="button" className={`holdbtn${recording ? ' rec' : ''}`} style={{ minHeight: 104, borderRadius: 'var(--radius-sm)', flexDirection: 'column', gap: 6, fontSize: 13 }}
+                  onPointerDown={startRec} onPointerUp={stopRec} onPointerLeave={stopRec} onPointerCancel={stopRec}
+                  aria-label={t('report_hold_record')}>
+            <PictoMic size={40} />
+            {recording ? t('report_recording') : voice ? <><IconCheck size={16} /> {t('report_recorded')}</> : t('report_hold_record')}
+          </button>
+        </div>
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 15 }}>{t('report_describe_optional')}</summary>
+          <input className="cz-input" style={{ marginTop: 8 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('report_describe_optional')} />
+          <input className="cz-input" style={{ marginTop: 8 }} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t('report_phone_optional')} />
+        </details>
+      </div>
+
+      {error && <p className="cz-offline" role="alert">{error}</p>}
+
+      <button className="cz-sendbtn" onClick={send} disabled={busy || locState === 'finding'}>
+        {busy ? t('report_sending') : <><Picto size={28} style={{ verticalAlign: 'middle', marginRight: 8 }} />{t('report_send')}</>}
+      </button>
+
+      {/* Pincode when we know it; otherwise the GPS fix (works with no internet). */}
+      <div style={{ marginTop: 12 }}>
+        <SmsButton intent="report" className="cz-linkbtn sms" label={t('report_send_sms')} icon={<IconMail />}
+                   where={geo?.nearest_pincode || (pos ? `${pos.lat.toFixed(5)},${pos.lon.toFixed(5)}` : null)}
+                   extra={`${signs.map((k) => SIGN_SMS[k]).join(' ')} ${t(`issue_${issue}`)} ${note}`} />
+      </div>
+      <p className="cz-notice" style={{ marginTop: 6 }}>{t('report_sms_hint')}</p>
+      <p className="cz-notice">{t('emergency_line')}</p>
+    </Shell>
+  )
+}
+
+/** Full-screen "we got it": a drawn tick, one sentence, said out loud. The
+ *  offline case is the same screen in slate with "will send when your
+ *  network returns". */
+function Done({ done }: { done: { queued: boolean; id?: number; zone?: string | null } }) {
+  const [lang, , t] = useLang()
+  const head = done.queued ? t('done_queued_title') : t('done_title')
+  const body = done.queued ? t('done_queued_body') : t('report_sent_body')
+  useEffect(() => { speak(done.queued ? `${head} ${body}` : head, lang) }, [head, body, lang, done.queued])
+  return (
+    <div className={`cz cz-done${done.queued ? ' queued' : ''}`} role="status" aria-live="assertive">
+      <svg className="tick" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45" /><path d="M30 52l13 13 27-30" /></svg>
+      <h1>{head}</h1>
+      <p>{body}</p>
+      {done.id && <p className="meta">{t('report_ref')} #{done.id}{done.zone ? ` · ${done.zone}` : ''}</p>}
+      <div className="actions">
+        <div style={{ alignSelf: 'center' }}><Speak text={`${head} ${body}`} lang={lang} label={t('tap_to_hear')} /></div>
+        <a className="cz-linkbtn" href="/">{t('done_home')}</a>
+        <button className="cz-linkbtn" onClick={() => window.location.reload()}>{t('report_another')}</button>
+      </div>
+    </div>
+  )
+}

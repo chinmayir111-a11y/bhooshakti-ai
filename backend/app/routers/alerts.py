@@ -41,6 +41,12 @@ def _serialise(db: Session, alert: Alert) -> dict:
         "created_at": alert.created_at,
         "acknowledged": alert.acknowledged,
         "source": alert.source,
+        "tier": alert.tier,
+        "status": alert.status,
+        "kind": {"auto-advisory": "advisory", "moderator-confirmed": "confirmed",
+                 "all-clear": "all_clear"}.get(alert.source, "risk"),
+        "report_id": alert.report_id,
+        "parent_alert_id": alert.parent_alert_id,
         "deliveries": [
             {"channel": d.channel, "recipient": d.recipient, "status": d.status.value,
              "detail": d.detail, "language": d.language, "sent_at": d.sent_at}
@@ -168,3 +174,39 @@ def acknowledge(alert_id: int, request: Request, db: Session = Depends(get_db),
     db.commit()
     manager.publish_threadsafe("alert.acknowledged", {"alert_id": alert_id})
     return {"ok": True, "alert_id": alert_id}
+
+
+@router.post("/{alert_id}/retry", summary="Retry every FAILED delivery of an alert (3 tries each)")
+def retry(alert_id: int, request: Request, db: Session = Depends(get_db),
+          principal: Principal = Depends(require_authority)) -> dict:
+    from datetime import datetime, timezone
+
+    from ..models import AlertDelivery, DeliveryStatus
+    from ..notify import Recipients, build_channels, retry_failed
+    from ..notify.base import DeliveryResult
+
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(404, "No such alert")
+    zone = db.get(Zone, alert.zone_id)
+    failed = [d for d in alert.deliveries if d.status == DeliveryStatus.FAILED and d.recipient]
+    payload = AlertPayload(
+        alert_id=alert.id, zone_id=alert.zone_id, zone_code=zone.code if zone else "",
+        zone_name=alert.zone_name, district=zone.district if zone else "", state=zone.state if zone else "",
+        severity=alert.severity.value, risk_score=alert.risk_score, confidence=alert.confidence,
+        contributing_factors=alert.contributing_factors or [], title=alert.title, message=alert.message,
+        language=alert.language, tier=alert.tier,
+        deep_link=f"{settings.public_dashboard_url}/control?zone={alert.zone_id}",
+    )
+    outcome = []
+    for d in failed:
+        rec = Recipients(emails=[d.recipient], phones=[d.recipient], voice=[d.recipient], tokens=[d.recipient])
+        for ch in build_channels(db, [d.channel], rec):
+            first = ch.send(payload)
+            r = retry_failed(ch, payload, first)[0] if first else DeliveryResult(d.channel, d.recipient, "FAILED", "no result", datetime.now(timezone.utc))
+            d.status, d.detail, d.sent_at = DeliveryStatus(r.status), f"retry: {r.detail}", r.sent_at
+            outcome.append({"channel": d.channel, "recipient": d.recipient, "status": r.status})
+    audit(db, principal, "retry_deliveries", "alert", alert_id, request, {"results": outcome}, commit=False)
+    db.commit()
+    manager.publish_threadsafe("alert.delivery", {"alert_id": alert.id})
+    return {"alert_id": alert.id, "retried": len(outcome), "results": outcome}

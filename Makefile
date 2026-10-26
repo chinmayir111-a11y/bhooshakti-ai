@@ -43,8 +43,9 @@ DB_NAME := bhooshakti
 DB_USER := bhooshakti
 DB_PASS := bhooshakti
 
-.PHONY: help doctor setup venv services db seed weather train api web mobile \
-        sensors test test-backend test-mobile reset clean
+.PHONY: demo-check help doctor setup venv services db seed weather train api web mobile \
+        sensors test test-backend test-mobile reset clean import-landslides backtest backtest-2015 shelters terrain demo backup restore \
+        train-synthetic demo-live-sensor calibrate test-email
 
 help: ## Show this help
 	@echo "BHOOSHAKTI AI — available commands"
@@ -95,7 +96,7 @@ doctor: ## Check prerequisites and report what is missing
 
 # ------------------------------------------------------------------- setup
 
-setup: venv services db seed train ## Install everything and prepare the database
+setup: venv services db seed import-landslides train backtest ## Install everything and prepare the database
 	@cd web && npm install --silent
 	@cd mobile && npm install --silent
 	@echo ""
@@ -139,19 +140,58 @@ db: ## Create the database, role and PostGIS extension
 
 seed: ## Rebuild the schema and load data (fetches real weather)
 	@cd backend && .venv/bin/python scripts/seed.py --reset
+	@cd backend && .venv/bin/python scripts/seed_volunteers.py
 
 weather: ## Refresh the cached Open-Meteo weather
 	@cd backend && .venv/bin/python scripts/fetch_weather.py
 
-train: ## Train the susceptibility model
+import-landslides: ## Import REAL NE-India landslides (NASA GLC) + cache their ERA5 weather
+	@cd backend && .venv/bin/python scripts/import_landslides.py
+
+train: ## Train the model on the real events (hold out the most recent year)
 	@cd backend && .venv/bin/python scripts/train.py
 
-reset: seed train ## Rebuild data and model from scratch
+terrain: ## One-off: real slope and elevation per zone from the AWS Terrain Tiles DEM
+	@cd backend && .venv/bin/python scripts/real_terrain.py
+
+shelters: ## One-off: import schools, halls and hospitals near each zone from OpenStreetMap
+	@cd backend && .venv/bin/python scripts/import_shelters.py
+
+backtest: ## Replay held-out real landslides; writes ml/artifacts/backtest_results.json
+	@cd backend && .venv/bin/python scripts/backtest.py
+
+backtest-2015: ## Same test on 2015, model trained on 2007-2014 only; writes ml/artifacts/backtest_2015.json
+	@cd backend && .venv/bin/python scripts/backtest_year.py --year 2015
+
+train-synthetic: ## Offline dev only: seed --synthetic events and train on them
+	@cd backend && .venv/bin/python scripts/seed.py --reset --synthetic && .venv/bin/python scripts/train_synthetic.py
+
+calibrate: ## Re-measure the demo storm after a retrain (see demo_engine.py)
+	@cd backend && .venv/bin/python scripts/calibrate_demo.py
+
+reset: seed import-landslides train backtest ## Rebuild data and model from scratch
 
 # ------------------------------------------------------------------- run
 
 api: ## Run the API on :8000
 	@cd backend && .venv/bin/python -m uvicorn app.main:app --reload --port 8000
+
+# The database the API uses, from .env (SQLAlchemy URL -> libpq URL).
+DB_URL ?= $(shell grep -E '^DATABASE_URL=' .env 2>/dev/null | cut -d= -f2- | sed 's/+psycopg2//')
+
+backup: ## Dump the database to backups/bhooshakti-<date>-<time>.sql.gz
+	@mkdir -p backups
+	@f=backups/bhooshakti-$$(date +%Y%m%d-%H%M).sql.gz; \
+	  pg_dump --no-owner --clean --if-exists -d "$(DB_URL)" | gzip > $$f && \
+	  echo "  -> $$f ($$(du -h $$f | cut -f1))"
+
+restore: ## Restore a dump OVER the current database: make restore FILE=backups/<file>.sql.gz
+	@test -n "$(FILE)" || (echo "usage: make restore FILE=backups/<file>.sql.gz"; exit 1)
+	@test -f "$(FILE)" || (echo "no such file: $(FILE)"; exit 1)
+	@gunzip -c "$(FILE)" | psql -q -v ON_ERROR_STOP=1 -d "$(DB_URL)" > /dev/null && echo "  restored $(FILE)"
+
+demo: ## Production build of the web app on :4180 — use this for judging (3D map ~4x faster than make web)
+	@cd web && npm run build && npx vite preview --port 4180 --strictPort --host
 
 web: ## Run the dashboard on :5173
 	@cd web && npm run dev
@@ -162,11 +202,20 @@ mobile: ## Run the Expo field app on :8081
 sensors: ## Run the simulated sensor network (NOT during the scripted demo)
 	@cd backend && .venv/bin/python scripts/sensor_simulator.py --interval 5
 
+demo-live-sensor: ## Keyboard-driven FAKE hardware node KB-01 (T tilt, W wet) — labelled simulated
+	@cd backend && .venv/bin/python scripts/demo_live_sensor.py
+
+demo-check: ## Green/red checklist: API, DB, model, MQTT, Open-Meteo, map tiles, SMTP
+	@cd backend && .venv/bin/python scripts/demo_check.py
+
+test-email: ## Send a real alert email to TEST_ALERT_EMAIL (needs SMTP_* in .env)
+	@cd backend && .venv/bin/python scripts/test_alert_email.py
+
 # ------------------------------------------------------------------ tests
 
 test: test-backend test-mobile ## Run every test suite
 
-test-backend: ## Fusion, PostGIS spatial and weather tests
+test-backend: ## Backend tests (fusion, spatial, weather, triage, SMS/IVR, CAP, backtest)
 	@cd backend && .venv/bin/python -m pytest -q
 
 test-mobile: ## Offline sync queue tests

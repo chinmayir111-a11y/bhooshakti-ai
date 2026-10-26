@@ -8,9 +8,10 @@ Builds the alert from a real zone's current risk — severity, score, confidence
 ranked contributing factors, exposed roads and settlements, and a deep link back
 into the dashboard — then pushes it through the email channel.
 
-With SMTP_HOST unset the channel reports SIMULATED and prints the rendered
-message instead of sending. That is a configuration state, not a failure, and
-this script says so plainly rather than pretending a message went out.
+Sends to TEST_ALERT_EMAIL from .env (falling back to ALERT_TEST_EMAIL), or
+`--to`. With SMTP not configured it STOPS before anything is rendered as sent
+and prints exactly which .env keys are missing — a configuration state, not a
+failure, and the script says so rather than pretending a message went out.
 """
 from __future__ import annotations
 
@@ -33,15 +34,32 @@ from app.services import spatial  # noqa: E402
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Send a BHOOSHAKTI AI test alert email")
-    ap.add_argument("--to", default=settings.alert_test_email, help="recipient address")
+    ap.add_argument("--to", default=settings.e2e_test_email,
+                    help="recipient address (default: TEST_ALERT_EMAIL, else ALERT_TEST_EMAIL)")
     ap.add_argument("--zone", default=None, help="zone code, e.g. DJ-04 (default: highest risk)")
     ap.add_argument("--lang", default="en", choices=["en", "hi", "as"])
     ap.add_argument("--dump-html", default=None, help="also write the HTML body to this path")
     args = ap.parse_args()
 
     print("=" * 74)
-    print("BHOOSHAKTI AI — alert email test   [DEMO DATA]")
+    print("BHOOSHAKTI AI — end-to-end alert email test   [DEMO DATA]")
     print("=" * 74)
+
+    missing = [k for k, v in (("SMTP_HOST", settings.smtp_host), ("SMTP_USER", settings.smtp_user),
+                              ("SMTP_PASSWORD", settings.smtp_password)) if not v.strip()]
+    if not args.to:
+        missing.append("TEST_ALERT_EMAIL")
+    if missing:
+        print("  SMTP is NOT configured. Nothing was sent. Missing .env keys:")
+        for k in missing:
+            print(f"      {k}=")
+        print()
+        print("  Gmail example:  SMTP_HOST=smtp.gmail.com  SMTP_PORT=587  SMTP_USER=<address>")
+        print("                  SMTP_PASSWORD=<16-char app password: https://myaccount.google.com/apppasswords>")
+        print(f"  Recipient      : TEST_ALERT_EMAIL (currently "
+              f"{'unset — falls back to ALERT_TEST_EMAIL=' + settings.alert_test_email if not settings.test_alert_email else settings.test_alert_email})")
+        print("\n  RESULT: NOT CONFIGURED — set the keys above and re-run.")
+        return 3
     print(f"  SMTP host    : {settings.smtp_host or '(unset)'}")
     print(f"  SMTP port    : {settings.smtp_port}")
     print(f"  SMTP user    : {settings.smtp_user or '(unset)'}")

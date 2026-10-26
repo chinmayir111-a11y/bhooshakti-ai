@@ -239,3 +239,23 @@ def test_components_are_exposed_for_transparency():
 ])
 def test_sensor_health_fraction(total, active, expected):
     assert sensor_health_of(total, active) == pytest.approx(expected)
+
+
+# ------------------------------------------------------- measured ground movement
+
+
+def test_tilt_below_the_floor_changes_nothing():
+    from ml.fusion import TILT_FLOOR_DEG
+    calm = fuse(base())
+    small = fuse(base(tilt_change_deg=TILT_FLOOR_DEG * 0.9, tilt_node="HW-01"))
+    assert small.risk_score == calm.risk_score
+    assert "ground_movement" not in {f["key"] for f in small.contributing_factors}
+
+
+def test_tilt_at_the_ceiling_adds_the_full_uplift_and_leads_the_explanation():
+    from ml.fusion import TILT_CEILING_DEG, TILT_UPLIFT
+    calm = fuse(base())
+    moving = fuse(base(tilt_change_deg=TILT_CEILING_DEG + 2, tilt_node="HW-01"))
+    assert moving.risk_score == pytest.approx(min(100.0, calm.risk_score + TILT_UPLIFT * 100), abs=0.15)
+    top = moving.contributing_factors[0]
+    assert top["key"] == "ground_movement" and "HW-01" in top["text"]
