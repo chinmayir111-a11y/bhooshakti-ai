@@ -2,9 +2,6 @@
 
 **AI-powered landslide early warning and risk monitoring for North-East India.**
 
-Smart India Hackathon 2026 · Problem Statement **26001** (MDoNER — Disaster Management, Software)
-Team **DEADLINE SURVIVORS**
-
 > ### ⚠ WHAT IS REAL HERE, AND WHAT IS NOT
 > **Real:** rainfall and soil moisture (hourly ERA5 reanalysis + forecast from
 > [Open-Meteo](https://open-meteo.com), cached per zone with the grid cell recorded);
@@ -54,8 +51,8 @@ prototype was developed on.
 Requires [Docker Desktop](https://docs.docker.com/get-started/get-docker/).
 
 ```bash
-git clone https://github.com/chinmayir111-a11y/bhooshakti.git
-cd bhooshakti
+git clone https://github.com/chinmayir111-a11y/bhooshakti-ai.git
+cd bhooshakti-ai
 cp .env.example .env
 
 docker compose up --build                                # starts db, mqtt, api, web
@@ -531,16 +528,6 @@ For a quick demonstration of the complete BHOOSHAKTI AI workflow:
 4. Open `http://localhost:5173`.
 5. Sign in using the `authority` demo account.
 6. Select **Simulate Monsoon Event** to demonstrate the prediction, monitoring, verification, alert, and response workflow.
-
-### Demo Credentials
-
-All demo accounts use the password `demo1234`.
-
-| Username | Role | Access |
-|---|---|---|
-| `authority` | Authority | Full dashboard, alerts, moderation, audit and demo controls |
-| `field.officer` | Field Officer | Assigned zones and field verification |
-| `citizen` | Citizen | Citizen reporting functionality |
 
 > **Note:** BHOOSHAKTI AI clearly distinguishes real weather observations from simulated sensor telemetry, historical landslide events, terrain attributes, infrastructure data and the demonstration monsoon event. See **What is real vs simulated** for the complete data provenance.
 
