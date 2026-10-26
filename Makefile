@@ -190,8 +190,8 @@ restore: ## Restore a dump OVER the current database: make restore FILE=backups/
 	@test -f "$(FILE)" || (echo "no such file: $(FILE)"; exit 1)
 	@gunzip -c "$(FILE)" | psql -q -v ON_ERROR_STOP=1 -d "$(DB_URL)" > /dev/null && echo "  restored $(FILE)"
 
-demo: ## Production build of the web app on :4173 — use this for judging (3D map ~4x faster than make web)
-	@cd web && npm run build && npx vite preview --port 4173 --host
+demo: ## Production build of the web app on :4180 — use this for judging (3D map ~4x faster than make web)
+	@cd web && npm run build && npx vite preview --port 4180 --strictPort --host
 
 web: ## Run the dashboard on :5173
 	@cd web && npm run dev

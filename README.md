@@ -150,7 +150,8 @@ Two terminals (three if you want the phone app):
 | 2 | `make web` | `npm run dev` *(from `web\`)* |
 | 3 | `make mobile` | `npx expo start --web --port 8081` *(from `mobile\`)* |
 
-**For judging, use `make demo` instead of `make web`** (then open http://localhost:4173). It
+**For judging, use `make demo` instead of `make web`** (then open http://localhost:4180 — its own port, so a
+service worker left by another local project on :4173 cannot get in the way). It
 serves a production build: measured on a MacBook with a real GPU, the 3D map was ready in
 about 6–8 s on a first visit against 26 s from the dev server, which ships 4.8 MB of unbundled
 JavaScript. The alert list and the flat map appear in about 1–2 s either way. The rest of the
